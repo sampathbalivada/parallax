@@ -1,0 +1,1816 @@
+# Project Parallax — Build Blueprint
+
+## 1. Project Summary
+
+Project Parallax is a director-defined adaptive cinema application.
+
+A filmmaker provides:
+
+- a canonical short film;
+- a set of explicitly marked adaptive slots;
+- constraints describing what may and may not change;
+- a canonical fallback clip for every slot.
+
+A viewer selects a profile containing location and language preferences.
+
+The application then:
+
+1. loads the canonical film;
+2. checks whether personalized assets already exist for each adaptive slot;
+3. generates missing image assets with `gemini-3.1-flash-lite-image`;
+4. generates or edits short video inserts with `gemini-omni-flash-preview`;
+5. validates and caches successful outputs;
+6. plays personalized clips when ready;
+7. plays the canonical fallback when generation is unavailable or misses its deadline.
+
+The hackathon demo should use a 45–90 second original short film with exactly three adaptive slots.
+
+---
+
+## 2. Primary Demo Goal
+
+Demonstrate that:
+
+- the director controls which parts of the movie may change;
+- the same story can be rendered differently for different viewers;
+- location and language personalization can happen inside the cinematic world;
+- generated assets are prepared ahead of playback;
+- playback never blocks on generation;
+- a canonical fallback always exists;
+- cached cuts can be replayed immediately;
+- three personalized cuts can be compared side by side.
+
+The application should feel like a prototype of a new film format, not merely a prompt-to-video interface.
+
+---
+
+## 3. Codename
+
+**Project Parallax**
+
+Tagline:
+
+> One story. A different world for every viewer.
+
+Product descriptor:
+
+> Director-authored adaptive cinema.
+
+---
+
+## 4. Scope
+
+### In scope
+
+- Web application
+- Director Studio
+- Viewer profile selector
+- Adaptive video player
+- Three adaptive slot types
+- Location personalization
+- Language personalization
+- Nano Banana keyframe and prop generation
+- Gemini Omni short video generation or editing
+- Pre-generation
+- Cache lookup
+- Canonical fallback
+- Generation status UI
+- Side-by-side comparison
+- Simulated and real generation modes
+- Manual approval for generated assets
+- Lightweight validation
+- Demo-ready seed data
+
+### Out of scope
+
+- Full non-linear video editor
+- Arbitrary commercial movie ingestion
+- Celebrity or actor replacement
+- Real-time lip-sync replacement
+- Voice cloning
+- Full account and authentication system
+- Payment or ad marketplace
+- Production-grade DRM
+- Long-form film generation
+- Automatic demographic inference
+- Frame-perfect transitions across arbitrary shots
+- Fully automated moderation pipeline
+
+---
+
+## 5. Recommended Technology Stack
+
+Use a stack optimized for speed of implementation.
+
+### Frontend
+
+- Next.js 15+
+- TypeScript
+- React
+- Tailwind CSS
+- ShadCN UI
+- HTML5 video
+- HLS.js only if needed
+- Zustand for client state
+- React Query or native server actions for API state
+
+### Backend
+
+Use one of:
+
+- Next.js route handlers for the hackathon; or
+- FastAPI if Antigravity prefers a separate backend.
+
+Preferred for speed:
+
+- Next.js route handlers
+- Background job abstraction implemented in-process initially
+- Firebase or Supabase for metadata
+- Cloud Storage, Firebase Storage, or local filesystem for media
+
+### Storage
+
+For the fastest implementation:
+
+- local filesystem in development;
+- Firebase Storage or Google Cloud Storage in deployed mode.
+
+### Database
+
+Use Firestore or Supabase Postgres.
+
+Recommended collections/tables:
+
+- movies
+- slots
+- viewer_profiles
+- generation_jobs
+- generated_assets
+- cache_entries
+
+### AI models
+
+- Image generation and editing: `gemini-3.1-flash-lite-image`
+- Short video generation and editing: `gemini-omni-flash-preview`
+
+All model calls must be wrapped behind server-side service interfaces.
+
+---
+
+## 6. Application Routes
+
+```text
+/
+├── /director
+├── /director/movies/[movieId]
+├── /watch
+├── /watch/[movieId]
+├── /compare/[movieId]
+├── /jobs
+└── /api/*
+```
+
+### `/`
+
+Landing page with:
+
+- product title;
+- one-sentence explanation;
+- “Open Director Studio” CTA;
+- “Watch Personalized Cut” CTA;
+- “Compare Cuts” CTA.
+
+### `/director`
+
+List available demo films.
+
+For the hackathon, ship one seeded movie.
+
+### `/director/movies/[movieId]`
+
+Director Studio.
+
+Must include:
+
+- canonical video preview;
+- visual timeline;
+- three adaptive slot markers;
+- slot inspector;
+- constraints editor;
+- generated variants;
+- approve/reject controls;
+- fallback preview;
+- generate test variant action.
+
+### `/watch`
+
+Viewer profile selector.
+
+### `/watch/[movieId]`
+
+Adaptive player.
+
+Must include:
+
+- selected viewer profile;
+- preparation status;
+- adaptive video player;
+- slot readiness indicators;
+- cache hit/miss indicators;
+- canonical fallback state;
+- debug panel hidden by default.
+
+### `/compare/[movieId]`
+
+Three synchronized personalized cuts.
+
+Must support:
+
+- side-by-side playback;
+- synchronized seek;
+- profile labels;
+- slot-by-slot jump controls;
+- canonical comparison toggle.
+
+### `/jobs`
+
+Developer/demo operations screen.
+
+Must show:
+
+- queued jobs;
+- active jobs;
+- completed jobs;
+- failed jobs;
+- retry action;
+- asset links;
+- model used;
+- cache key;
+- duration;
+- validation result.
+
+---
+
+## 7. Seed Demo Film
+
+Create or ingest one original 45–90 second short mystery film.
+
+Suggested narrative:
+
+> A traveller enters a hotel room, sees an unfamiliar city outside, finds a newspaper carrying a warning, and notices a television bulletin that reveals the next clue.
+
+The film must contain three clean edit boundaries.
+
+### Slot 1: City Establishing Shot
+
+Duration: 3–6 seconds
+
+Narrative purpose:
+
+- establish where the story is taking place.
+
+Personalizable:
+
+- city;
+- weather;
+- signage language;
+- ambient environment.
+
+Immutable:
+
+- time of day;
+- camera direction;
+- emotional tone;
+- duration range.
+
+Preferred generation method:
+
+1. Nano Banana generates a keyframe.
+2. Omni animates the keyframe.
+
+Fallback:
+
+- canonical generic city clip.
+
+### Slot 2: Newspaper or Phone Clue
+
+Duration: 3–5 seconds
+
+Narrative purpose:
+
+- reveal that the antagonist has returned.
+
+Personalizable:
+
+- language;
+- city;
+- publication name;
+- typography;
+- local date format.
+
+Immutable:
+
+- antagonist name;
+- plot fact;
+- warning symbol;
+- clue meaning.
+
+Preferred generation method:
+
+1. Nano Banana creates the localized prop.
+2. Either:
+   - traditional compositing into a prepared plate; or
+   - Omni creates a short close-up animation.
+
+Fallback:
+
+- canonical English clue.
+
+### Slot 3: TV Bulletin or Billboard
+
+Duration: 3–6 seconds
+
+Narrative purpose:
+
+- provide a final contextual clue.
+
+Personalizable:
+
+- language;
+- location;
+- broadcast graphics;
+- optional sponsor category.
+
+Immutable:
+
+- story fact;
+- character reaction timing;
+- required visual symbol.
+
+Preferred generation method:
+
+1. Nano Banana creates broadcast graphic.
+2. Omni animates or embeds it into the scene.
+
+Fallback:
+
+- canonical generic bulletin.
+
+---
+
+## 8. Viewer Profiles
+
+Do not build full authentication.
+
+Use structured demo profiles.
+
+Seed these profiles:
+
+```json
+[
+  {
+    "id": "vizag-te",
+    "displayName": "Sampath",
+    "city": "Visakhapatnam",
+    "country": "India",
+    "locale": "te-IN",
+    "languageLabel": "Telugu",
+    "culturalContext": ["coastal city", "India"],
+    "accessibility": {
+      "highContrastText": false,
+      "simplifiedVisualClues": false
+    }
+  },
+  {
+    "id": "tokyo-ja",
+    "displayName": "Aiko",
+    "city": "Tokyo",
+    "country": "Japan",
+    "locale": "ja-JP",
+    "languageLabel": "Japanese",
+    "culturalContext": ["dense urban environment", "Japan"],
+    "accessibility": {
+      "highContrastText": false,
+      "simplifiedVisualClues": false
+    }
+  },
+  {
+    "id": "sf-en",
+    "displayName": "Maya",
+    "city": "San Francisco",
+    "country": "United States",
+    "locale": "en-US",
+    "languageLabel": "English",
+    "culturalContext": ["Bay Area", "United States"],
+    "accessibility": {
+      "highContrastText": true,
+      "simplifiedVisualClues": false
+    }
+  }
+]
+```
+
+Also support an ad hoc profile form:
+
+- display name;
+- city;
+- country;
+- language;
+- locale.
+
+Use an ad hoc profile such as Paris/French for the live-generation portion.
+
+---
+
+## 9. Core Data Model
+
+### Movie
+
+```ts
+export interface Movie {
+  id: string;
+  title: string;
+  description: string;
+  durationSeconds: number;
+  canonicalVideoUrl: string;
+  posterUrl?: string;
+  manifestVersion: number;
+  promptVersion: number;
+  status: "draft" | "ready" | "archived";
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+### Adaptive Slot
+
+```ts
+export type SlotType =
+  | "CITY_ESTABLISHING"
+  | "LOCALIZED_PROP"
+  | "DIEGETIC_SCREEN";
+
+export interface AdaptiveSlot {
+  id: string;
+  movieId: string;
+  label: string;
+  type: SlotType;
+
+  startSeconds: number;
+  endSeconds: number;
+  generationLeadSeconds: number;
+  generationDeadlineSeconds: number;
+
+  narrativePurpose: string;
+
+  editableFields: string[];
+  immutableFacts: string[];
+  prohibitedChanges: string[];
+
+  visualConstraints: {
+    preserveDuration: boolean;
+    preserveCameraMotion: boolean;
+    preserveLighting: boolean;
+    preserveCharacters: boolean;
+    preserveForegroundObjects: boolean;
+    maxProminence?: number;
+  };
+
+  supportedLocales: string[];
+
+  canonicalFallbackUrl: string;
+  referenceImageUrls?: string[];
+  referenceVideoUrl?: string;
+
+  generationStrategy:
+    | "IMAGE_THEN_VIDEO"
+    | "VIDEO_EDIT"
+    | "IMAGE_COMPOSITE"
+    | "PREGENERATED_ONLY";
+
+  isEnabled: boolean;
+}
+```
+
+### Viewer Profile
+
+```ts
+export interface ViewerProfile {
+  id: string;
+  displayName: string;
+  city: string;
+  country: string;
+  locale: string;
+  languageLabel: string;
+  culturalContext?: string[];
+
+  accessibility?: {
+    highContrastText?: boolean;
+    simplifiedVisualClues?: boolean;
+  };
+}
+```
+
+### Generation Job
+
+```ts
+export type GenerationJobStatus =
+  | "QUEUED"
+  | "GENERATING_IMAGE"
+  | "IMAGE_READY"
+  | "GENERATING_VIDEO"
+  | "VALIDATING"
+  | "READY"
+  | "FAILED"
+  | "EXPIRED"
+  | "CANCELLED";
+
+export interface GenerationJob {
+  id: string;
+  movieId: string;
+  slotId: string;
+  profileId?: string;
+  profileSnapshot: ViewerProfile;
+
+  status: GenerationJobStatus;
+
+  cacheKey: string;
+  modelImage?: string;
+  modelVideo?: string;
+
+  imagePrompt?: string;
+  videoPrompt?: string;
+
+  imageAssetUrl?: string;
+  videoAssetUrl?: string;
+
+  startedAt?: string;
+  completedAt?: string;
+  failureReason?: string;
+
+  validation?: ValidationResult;
+  approved: boolean;
+}
+```
+
+### Validation Result
+
+```ts
+export interface ValidationResult {
+  fileExists: boolean;
+  durationValid: boolean;
+  aspectRatioValid: boolean;
+  requiredFactsPresent: boolean;
+  prohibitedElementsAbsent: boolean;
+  languageMatch: boolean;
+  locationMatch: boolean;
+  modelReviewSummary?: string;
+  passed: boolean;
+}
+```
+
+### Cache Entry
+
+```ts
+export interface CacheEntry {
+  id: string;
+  cacheKey: string;
+  movieId: string;
+  slotId: string;
+  assetUrl: string;
+  assetType: "IMAGE" | "VIDEO";
+  profileFingerprint: string;
+  modelName: string;
+  modelVersion?: string;
+  manifestVersion: number;
+  promptVersion: number;
+  validationPassed: boolean;
+  approved: boolean;
+  createdAt: string;
+  lastAccessedAt: string;
+}
+```
+
+---
+
+## 10. Adaptation Manifest
+
+Store one manifest per movie.
+
+Example:
+
+```json
+{
+  "movieId": "hotel-mystery-001",
+  "title": "The Room Across the City",
+  "manifestVersion": 1,
+  "promptVersion": 1,
+  "slots": [
+    {
+      "id": "slot-city",
+      "label": "City reveal",
+      "type": "CITY_ESTABLISHING",
+      "startSeconds": 14,
+      "endSeconds": 19,
+      "generationLeadSeconds": 30,
+      "generationDeadlineSeconds": 5,
+      "narrativePurpose": "Establish the city where the story takes place.",
+      "editableFields": [
+        "city",
+        "country",
+        "signage language",
+        "weather"
+      ],
+      "immutableFacts": [
+        "Nighttime",
+        "Quiet and mysterious tone",
+        "No visible protagonist"
+      ],
+      "prohibitedChanges": [
+        "No logos",
+        "No famous landmarks unless explicitly requested",
+        "No crowds looking at camera"
+      ],
+      "visualConstraints": {
+        "preserveDuration": true,
+        "preserveCameraMotion": false,
+        "preserveLighting": true,
+        "preserveCharacters": true,
+        "preserveForegroundObjects": false
+      },
+      "supportedLocales": ["en-US", "te-IN", "ja-JP", "fr-FR"],
+      "canonicalFallbackUrl": "/media/fallbacks/city-generic.mp4",
+      "generationStrategy": "IMAGE_THEN_VIDEO",
+      "isEnabled": true
+    }
+  ]
+}
+```
+
+---
+
+## 11. Cache Strategy
+
+Build deterministic cache keys.
+
+```ts
+function buildCacheKey(input: {
+  movieId: string;
+  slotId: string;
+  profile: ViewerProfile;
+  manifestVersion: number;
+  promptVersion: number;
+  modelName: string;
+}): string {
+  const profileFingerprint = [
+    input.profile.city.trim().toLowerCase(),
+    input.profile.country.trim().toLowerCase(),
+    input.profile.locale.trim().toLowerCase(),
+    ...(input.profile.culturalContext ?? []).map(v => v.trim().toLowerCase())
+  ].join("|");
+
+  return [
+    input.movieId,
+    input.slotId,
+    profileFingerprint,
+    `manifest-${input.manifestVersion}`,
+    `prompt-${input.promptVersion}`,
+    input.modelName
+  ].join(":");
+}
+```
+
+Cache behavior:
+
+1. Build key.
+2. Look for approved, validated video asset.
+3. If found:
+   - mark as cache hit;
+   - use immediately.
+4. If not found:
+   - create generation job;
+   - keep fallback ready;
+   - start generation.
+5. Never block playback waiting for a job.
+
+---
+
+## 12. Generation Pipeline
+
+### Pipeline overview
+
+```text
+Viewer profile selected
+        ↓
+Resolve movie manifest
+        ↓
+Build one cache key per slot
+        ↓
+Check approved cache
+        ↓
+Cache hit → mark slot READY
+        ↓
+Cache miss → enqueue generation job
+        ↓
+Generate image/keyframe with Nano Banana
+        ↓
+Validate image
+        ↓
+Generate or edit 3–6 second video with Omni
+        ↓
+Validate video
+        ↓
+Manual or automatic approval
+        ↓
+Store in cache
+        ↓
+Player uses generated asset when ready
+        ↓
+Otherwise player uses canonical fallback
+```
+
+### Image service interface
+
+```ts
+export interface ImageGenerationService {
+  generateSlotImage(input: {
+    movie: Movie;
+    slot: AdaptiveSlot;
+    profile: ViewerProfile;
+  }): Promise<{
+    assetUrl: string;
+    prompt: string;
+    rawResponseId?: string;
+  }>;
+}
+```
+
+### Video service interface
+
+```ts
+export interface VideoGenerationService {
+  generateSlotVideo(input: {
+    movie: Movie;
+    slot: AdaptiveSlot;
+    profile: ViewerProfile;
+    imageAssetUrl?: string;
+  }): Promise<{
+    assetUrl: string;
+    prompt: string;
+    rawResponseId?: string;
+  }>;
+}
+```
+
+### Prompt builder interface
+
+```ts
+export interface PromptBuilder {
+  buildImagePrompt(input: {
+    movie: Movie;
+    slot: AdaptiveSlot;
+    profile: ViewerProfile;
+  }): string;
+
+  buildVideoPrompt(input: {
+    movie: Movie;
+    slot: AdaptiveSlot;
+    profile: ViewerProfile;
+    imageAssetUrl?: string;
+  }): string;
+}
+```
+
+---
+
+## 13. Prompt Templates
+
+Keep prompts simple and constrained.
+
+### City keyframe prompt
+
+```text
+Create a cinematic 16:9 establishing frame for a mystery film.
+
+Location: {{city}}, {{country}}
+Viewer language and signage locale: {{locale}}
+Time: night
+Mood: quiet, cinematic, slightly mysterious
+Camera: wide establishing shot
+Weather: subtle and realistic
+Visual style: grounded contemporary cinema
+Duration target for later animation: 4 seconds
+
+Include:
+- subtle local architectural cues;
+- one or two readable signs in the requested language;
+- realistic street lighting;
+- no famous person;
+- no brand logos;
+- no text other than natural environmental signage.
+
+The shot must work as an insert between two existing film cuts.
+```
+
+### City animation prompt
+
+```text
+Animate this image into a {{duration}} second cinematic establishing shot.
+
+Use:
+- slow camera drift;
+- subtle vehicle and environmental movement;
+- realistic light reflections;
+- natural ambient sound;
+- no new foreground subject;
+- no change to the city identity;
+- no change to the signage language.
+
+Keep the composition, visual identity, lighting, and mood the same.
+```
+
+### Localized newspaper prompt
+
+```text
+Create a realistic newspaper front page used as a clue in a mystery film.
+
+Language: {{languageLabel}}
+Locale: {{locale}}
+City: {{city}}
+
+Required narrative facts:
+{{immutableFacts}}
+
+Editable details:
+{{editableFields}}
+
+Requirements:
+- cinematic realism;
+- readable main headline;
+- correct language;
+- no real political claims;
+- no real person accused of wrongdoing;
+- fictional publication name;
+- clear warning symbol;
+- suitable for a 16:9 close-up insert;
+- preserve empty margins for safe video cropping.
+```
+
+### TV bulletin prompt
+
+```text
+Create a fictional local television news graphic for a mystery film.
+
+Language: {{languageLabel}}
+City: {{city}}
+Country: {{country}}
+
+Required story fact:
+{{immutableFacts}}
+
+Requirements:
+- fictional channel;
+- readable lower-third;
+- restrained broadcast design;
+- no real breaking-news claims;
+- no celebrity or public figure;
+- no real company logo;
+- composition safe for animation and video insertion.
+```
+
+### Omni edit prompt
+
+```text
+Modify only the adaptive element described below.
+
+Adaptive element:
+{{slot.label}}
+
+Viewer context:
+- City: {{city}}
+- Country: {{country}}
+- Locale: {{locale}}
+
+Required facts:
+{{immutableFacts}}
+
+Editable fields:
+{{editableFields}}
+
+Preserve:
+- all characters;
+- camera timing;
+- shot duration;
+- lighting;
+- foreground action;
+- audio unless the slot explicitly allows language changes;
+- every non-adaptive object.
+
+Keep everything else the same.
+```
+
+---
+
+## 14. Playback Architecture
+
+Do not attempt one dynamically modified video file at first.
+
+Build the movie as a sequence of canonical and adaptive clips.
+
+Example:
+
+```ts
+export interface PlaybackSegment {
+  id: string;
+  type: "CANONICAL" | "ADAPTIVE";
+  startSeconds: number;
+  endSeconds: number;
+  canonicalUrl: string;
+  personalizedUrl?: string;
+  activeUrl: string;
+  status: "READY" | "GENERATING" | "FALLBACK";
+}
+```
+
+Seed sequence:
+
+```text
+canonical-01.mp4
+slot-city.mp4
+canonical-02.mp4
+slot-newspaper.mp4
+canonical-03.mp4
+slot-tv.mp4
+canonical-04.mp4
+```
+
+This is more reliable than manipulating one long video during playback.
+
+### Player behavior
+
+Before playback:
+
+1. Resolve all segments.
+2. Replace adaptive segment URL with personalized URL if ready.
+3. Otherwise use canonical fallback.
+4. Preload current and next segment.
+5. Begin playback immediately.
+
+During playback:
+
+- never pause for generation;
+- periodically re-check not-yet-played slots;
+- swap in a generated asset only if it is ready before preload begins;
+- once a segment is preloaded, do not change it mid-playback;
+- record whether personalized or fallback footage was shown.
+
+### Simplest implementation
+
+Use one `<video>` element and switch source at segment boundaries.
+
+Requirements:
+
+- preload next clip;
+- preserve continuous playback;
+- hide loading spinner unless playback truly stalls;
+- optional 150–250 ms crossfade or black-frame transition;
+- synchronize cumulative timeline manually.
+
+Alternative:
+
+- concatenate approved clips server-side with FFmpeg before playback.
+
+Recommended hackathon path:
+
+- use segmented playback first;
+- optionally add a “Render Final Cut” action with FFmpeg later.
+
+---
+
+## 15. Look-Ahead Scheduler
+
+Generation should start before playback reaches a slot.
+
+Pseudo-code:
+
+```ts
+async function prepareMovieCut(
+  movie: Movie,
+  slots: AdaptiveSlot[],
+  profile: ViewerProfile
+) {
+  for (const slot of slots) {
+    const cached = await findApprovedCachedAsset(movie, slot, profile);
+
+    if (cached) {
+      markSlotReady(slot.id, cached.assetUrl, "CACHE_HIT");
+      continue;
+    }
+
+    markSlotGenerating(slot.id);
+    enqueueGenerationJob(movie, slot, profile);
+  }
+}
+```
+
+During playback:
+
+```ts
+function resolveSlotAsset(slotState: SlotState): string {
+  if (
+    slotState.status === "READY" &&
+    slotState.validationPassed &&
+    slotState.approved &&
+    slotState.personalizedAssetUrl
+  ) {
+    return slotState.personalizedAssetUrl;
+  }
+
+  return slotState.canonicalFallbackUrl;
+}
+```
+
+Deadline rule:
+
+```ts
+if (currentPlaybackSeconds >= slot.startSeconds - slot.generationDeadlineSeconds) {
+  lockSlotForThisPlayback(slot.id);
+}
+```
+
+After a slot is locked:
+
+- late generation may still be cached for future playback;
+- it must not replace the currently scheduled fallback.
+
+---
+
+## 16. Validation
+
+Validation must be lightweight and layered.
+
+### Deterministic checks
+
+- file exists;
+- file can be opened;
+- image dimensions are valid;
+- video duration is within tolerance;
+- aspect ratio is expected;
+- codec is playable;
+- file size is non-zero;
+- generated output is not identical to an error image.
+
+### Model-assisted checks
+
+Ask a multimodal Gemini model to inspect:
+
+- location match;
+- language match;
+- required story facts;
+- prohibited elements;
+- visual continuity;
+- whether the slot remains faithful to the narrative purpose.
+
+### Manual approval
+
+Director Studio must support:
+
+- approve;
+- reject;
+- regenerate;
+- use fallback;
+- add a note.
+
+For the live demo, pre-approve primary profiles.
+
+---
+
+## 17. Director Studio UI
+
+### Main layout
+
+Desktop-first.
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ Project Parallax / Movie Title                           │
+├──────────────────────────────────────────────────────────┤
+│ Video Preview                                            │
+│                                                          │
+├──────────────────────────────────────────────────────────┤
+│ Timeline: [canonical][slot1][canonical][slot2][slot3]    │
+├──────────────────────────────┬───────────────────────────┤
+│ Slot Inspector               │ Generated Variants        │
+│                              │                           │
+│ Type                         │ Visakhapatnam / Telugu     │
+│ Start / End                  │ Tokyo / Japanese          │
+│ Editable fields              │ San Francisco / English   │
+│ Immutable facts              │                           │
+│ Constraints                  │ Approve / Reject          │
+│ Fallback                     │ Regenerate                 │
+└──────────────────────────────┴───────────────────────────┘
+```
+
+### Required interactions
+
+- click a slot marker;
+- view slot metadata;
+- edit constraints;
+- preview fallback;
+- select a test profile;
+- generate;
+- inspect job state;
+- approve/reject;
+- view cache key;
+- preview final slot.
+
+Do not implement drag-and-drop timeline editing unless time remains.
+
+---
+
+## 18. Viewer Experience UI
+
+### Profile selector
+
+Cards for three seeded profiles.
+
+Each card displays:
+
+- name;
+- city;
+- language;
+- compact flag or location icon;
+- “Watch this cut” CTA.
+
+Also include:
+
+- “Create custom profile” CTA.
+
+### Preparation screen
+
+Show:
+
+- selected profile;
+- movie poster;
+- three slot statuses.
+
+Example:
+
+```text
+Preparing your cut
+
+✓ City reveal — cached
+✓ Newspaper clue — cached
+◌ TV bulletin — generating
+
+You can start watching now.
+Canonical footage will be used if a personalized segment is not ready.
+```
+
+The main CTA must remain enabled.
+
+### Player HUD
+
+Keep technical detail subtle.
+
+Visible:
+
+- movie title;
+- profile name;
+- progress bar;
+- three adaptive slot markers.
+
+Optional debug mode:
+
+- cache hit;
+- model name;
+- job status;
+- active asset URL;
+- fallback state.
+
+---
+
+## 19. Compare Screen
+
+Display three cuts side by side.
+
+### Required behavior
+
+- synchronized play/pause;
+- synchronized seek;
+- jump to slot;
+- mute all but selected player;
+- profile labels;
+- show current slot metadata;
+- canonical toggle.
+
+Recommended layout:
+
+```text
+┌──────────────────┬──────────────────┬──────────────────┐
+│ Visakhapatnam    │ Tokyo            │ San Francisco    │
+│ Telugu           │ Japanese         │ English          │
+│ [video]          │ [video]          │ [video]          │
+└──────────────────┴──────────────────┴──────────────────┘
+
+[Play all] [Pause] [City slot] [Clue slot] [TV slot]
+```
+
+For performance, comparison may use pre-rendered complete cuts rather than three segmented players.
+
+---
+
+## 20. Live Demo Strategy
+
+Use a hybrid approach.
+
+### Pre-generated
+
+Pre-generate and approve:
+
+- all three slots for Visakhapatnam/Telugu;
+- all three slots for Tokyo/Japanese;
+- all three slots for San Francisco/English;
+- all canonical fallback clips;
+- complete comparison cuts.
+
+### Generate live
+
+Create a fourth profile:
+
+```json
+{
+  "displayName": "Camille",
+  "city": "Paris",
+  "country": "France",
+  "locale": "fr-FR",
+  "languageLabel": "French"
+}
+```
+
+Generate only one bounded slot live.
+
+Preferred order:
+
+1. Nano Banana generates a newspaper, TV graphic, or city keyframe.
+2. Show the generated still immediately.
+3. Start Omni animation.
+4. Continue showing cached profiles and architecture.
+5. When Omni completes, preview the animated insert.
+6. If Omni fails or finishes late, demonstrate canonical fallback.
+
+### Important rule
+
+The main demo must never depend on the live generation succeeding.
+
+The live generation is a bonus proof of dynamism.
+
+---
+
+## 21. Demo Sequence
+
+Target length: 4–6 minutes.
+
+### Step 1 — Canonical film
+
+Play 20–30 seconds of the canonical version.
+
+Narration:
+
+> Every viewer normally receives this cut.
+
+### Step 2 — Viewer profile
+
+Select Visakhapatnam/Telugu.
+
+Narration:
+
+> This viewer has explicitly chosen a city and language.
+
+### Step 3 — Personalized playback
+
+Play the personalized cut.
+
+Highlight:
+
+- city shot;
+- Telugu clue;
+- localized TV graphic.
+
+### Step 4 — Director control
+
+Open Director Studio.
+
+Show:
+
+- only three slots can change;
+- immutable narrative facts;
+- fallback clip;
+- approved variants.
+
+### Step 5 — Comparison
+
+Open the compare screen.
+
+Play the three versions side by side.
+
+Narration:
+
+> The story remains identical. Only director-approved surfaces adapt.
+
+### Step 6 — Live generation
+
+Add Paris/French profile.
+
+Generate one slot.
+
+### Step 7 — Fallback
+
+Use a demo toggle to simulate a failed or late generation.
+
+Show:
+
+```text
+Generation deadline exceeded.
+Using director-approved canonical segment.
+```
+
+### Step 8 — Closing
+
+End with:
+
+> One story. A different world for every viewer.
+
+---
+
+## 22. API Endpoints
+
+### Movies
+
+```text
+GET    /api/movies
+GET    /api/movies/:movieId
+POST   /api/movies
+PATCH  /api/movies/:movieId
+```
+
+### Slots
+
+```text
+GET    /api/movies/:movieId/slots
+POST   /api/movies/:movieId/slots
+PATCH  /api/slots/:slotId
+```
+
+### Profiles
+
+```text
+GET    /api/profiles
+POST   /api/profiles
+GET    /api/profiles/:profileId
+```
+
+### Cut preparation
+
+```text
+POST   /api/cuts/prepare
+GET    /api/cuts/:movieId/:profileId
+```
+
+Request:
+
+```json
+{
+  "movieId": "hotel-mystery-001",
+  "profileId": "vizag-te"
+}
+```
+
+Response:
+
+```json
+{
+  "movieId": "hotel-mystery-001",
+  "profileId": "vizag-te",
+  "segments": [
+    {
+      "id": "canonical-01",
+      "type": "CANONICAL",
+      "activeUrl": "/media/canonical/part-01.mp4",
+      "status": "READY"
+    },
+    {
+      "id": "slot-city",
+      "type": "ADAPTIVE",
+      "activeUrl": "/media/generated/vizag-te/slot-city.mp4",
+      "status": "READY",
+      "source": "CACHE_HIT"
+    }
+  ]
+}
+```
+
+### Generation
+
+```text
+POST   /api/generation/jobs
+GET    /api/generation/jobs/:jobId
+POST   /api/generation/jobs/:jobId/retry
+POST   /api/generation/jobs/:jobId/cancel
+```
+
+### Approval
+
+```text
+POST   /api/assets/:assetId/approve
+POST   /api/assets/:assetId/reject
+```
+
+### Demo controls
+
+```text
+POST   /api/demo/simulate-failure
+POST   /api/demo/clear-cache
+POST   /api/demo/seed
+```
+
+Demo-only endpoints must be disabled outside development/demo mode.
+
+---
+
+## 23. Service Boundaries
+
+Create these modules:
+
+```text
+src/
+├── app/
+├── components/
+├── lib/
+│   ├── ai/
+│   │   ├── image-generation.service.ts
+│   │   ├── video-generation.service.ts
+│   │   ├── prompt-builder.ts
+│   │   └── validation.service.ts
+│   ├── cache/
+│   │   ├── cache-key.ts
+│   │   └── cache.repository.ts
+│   ├── jobs/
+│   │   ├── generation-queue.ts
+│   │   └── generation-worker.ts
+│   ├── media/
+│   │   ├── media-storage.ts
+│   │   ├── video-probe.ts
+│   │   └── ffmpeg.ts
+│   ├── playback/
+│   │   ├── cut-resolver.ts
+│   │   └── segment-scheduler.ts
+│   ├── repositories/
+│   └── types/
+└── public/
+    └── media/
+```
+
+Do not call Gemini models directly from UI components.
+
+---
+
+## 24. Mock Mode
+
+The application must work even without live model access.
+
+Environment variable:
+
+```text
+AI_MODE=mock | live
+```
+
+### Mock mode behavior
+
+- returns seeded Nano Banana images;
+- returns seeded Omni video clips;
+- simulates latency;
+- supports simulated failure;
+- populates realistic job states;
+- demonstrates cache hit and miss.
+
+Suggested delays:
+
+```text
+Nano Banana: 1.5 seconds
+Omni: 8–20 seconds
+Validation: 1 second
+```
+
+### Live mode behavior
+
+- performs real server-side API calls;
+- stores raw response IDs;
+- handles retries;
+- records latency and errors;
+- falls back safely.
+
+---
+
+## 25. Environment Variables
+
+```bash
+AI_MODE=mock
+
+GEMINI_API_KEY=
+GEMINI_IMAGE_MODEL=gemini-3.1-flash-lite-image
+GEMINI_VIDEO_MODEL=gemini-omni-flash-preview
+
+DATABASE_URL=
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY=
+
+MEDIA_STORAGE_DRIVER=local
+MEDIA_STORAGE_BUCKET=
+
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+ENABLE_DEMO_CONTROLS=true
+```
+
+Never expose `GEMINI_API_KEY` to the browser.
+
+---
+
+## 26. Error Handling
+
+Every generation job must have:
+
+- timeout;
+- retry count;
+- error code;
+- human-readable failure reason;
+- fallback asset;
+- idempotency through cache key.
+
+Suggested retry policy:
+
+- image generation: 2 retries;
+- video generation: 1 retry;
+- validation: 1 retry;
+- do not retry after playback deadline for the current session.
+
+Failure states:
+
+```ts
+export type GenerationFailureCode =
+  | "MODEL_TIMEOUT"
+  | "MODEL_REJECTED"
+  | "INVALID_OUTPUT"
+  | "STORAGE_FAILURE"
+  | "VALIDATION_FAILED"
+  | "DEADLINE_EXCEEDED"
+  | "UNKNOWN";
+```
+
+UI copy:
+
+```text
+Personalized version unavailable.
+Playing the director-approved original.
+```
+
+---
+
+## 27. Security and Privacy
+
+- Profiles must use user-declared data only.
+- Do not infer race, religion, politics, health, or socioeconomic status.
+- Do not upload private user media in the demo.
+- Do not use real news claims.
+- Do not use a real person as a fictional criminal or suspect.
+- Do not use celebrity footage.
+- Do not imply actor endorsement of personalized products.
+- Store only the minimum profile fields needed for generation.
+- Add an option to delete ad hoc profiles and generated assets.
+- Keep API keys server-side.
+- Validate all uploaded media types and sizes.
+
+---
+
+## 28. Observability
+
+Log:
+
+- movie ID;
+- slot ID;
+- profile ID;
+- cache key;
+- cache hit/miss;
+- model;
+- generation start;
+- generation completion;
+- latency;
+- validation result;
+- fallback use;
+- playback selection.
+
+Add a small metrics panel:
+
+```text
+Cache hit rate
+Average Nano Banana latency
+Average Omni latency
+Fallback rate
+Validated asset count
+Approved asset count
+```
+
+For the demo, local in-memory metrics are acceptable.
+
+---
+
+## 29. Build Phases
+
+### Phase 1 — Deterministic prototype
+
+- Set up app.
+- Seed movie, slots, and profiles.
+- Build Director Studio static UI.
+- Build profile selector.
+- Build segmented player.
+- Use pre-generated local assets.
+- Build compare screen.
+- Implement fallback behavior.
+
+### Phase 2 — Job and cache system
+
+- Add generation jobs.
+- Add cache keys.
+- Add job status UI.
+- Add mock generation latency.
+- Add simulated failure.
+- Add approval flow.
+
+### Phase 3 — Nano Banana integration
+
+- Implement image generation service.
+- Generate keyframes and props.
+- Save outputs.
+- Validate dimensions and metadata.
+- Add director preview.
+
+### Phase 4 — Omni integration
+
+- Implement short video generation service.
+- Support image-to-video.
+- Save generated video.
+- Validate duration and playback.
+- Add retry and timeout handling.
+
+### Phase 5 — Demo polish
+
+- Pre-generate primary cuts.
+- Render comparison videos.
+- Add smooth player transitions.
+- Add stage-friendly typography.
+- Add demo reset button.
+- Add debug panel.
+- Test fallback repeatedly.
+- Record backup screen capture.
+
+---
+
+## 30. Acceptance Criteria
+
+### Director Studio
+
+- [ ] One movie is visible.
+- [ ] Exactly three adaptive slots appear on the timeline.
+- [ ] Each slot exposes editable and immutable fields.
+- [ ] Each slot has a canonical fallback.
+- [ ] Generated variants can be previewed.
+- [ ] Assets can be approved or rejected.
+
+### Viewer flow
+
+- [ ] Three seeded profiles appear.
+- [ ] A custom profile can be created.
+- [ ] Selecting a profile prepares a cut.
+- [ ] Playback starts without waiting for generation.
+- [ ] Cached personalized clips play when available.
+- [ ] Fallback clips play when needed.
+- [ ] Slot status is visible.
+
+### AI pipeline
+
+- [ ] Nano Banana service can generate or mock an image.
+- [ ] Omni service can generate or mock a short video.
+- [ ] Output is stored.
+- [ ] Output is validated.
+- [ ] Valid output is cached.
+- [ ] Failed output never blocks playback.
+
+### Compare screen
+
+- [ ] Three profiles can be compared.
+- [ ] Players can be synchronized.
+- [ ] Viewer labels are visible.
+- [ ] Users can jump to each adaptive slot.
+
+### Demo reliability
+
+- [ ] Primary cuts are pre-generated.
+- [ ] Demo works with AI APIs disabled.
+- [ ] Live generation is optional.
+- [ ] Failure can be simulated.
+- [ ] Canonical fallback works every time.
+- [ ] Demo can be reset in one click.
+
+---
+
+## 31. Suggested Visual Design
+
+Use a cinematic but restrained interface.
+
+### Visual language
+
+- dark background;
+- warm white text;
+- film-strip inspired timeline;
+- violet or indigo accent for adaptive slots;
+- green for ready;
+- amber for generating;
+- gray for fallback;
+- red only for failed jobs.
+
+### Typography
+
+Use:
+
+- Inter, Geist, or similar for UI;
+- optional serif display font for movie title.
+
+### Motion
+
+- subtle timeline pulse while generating;
+- gentle fade when switching segments;
+- no excessive animation;
+- no sci-fi hologram aesthetic unless it supports clarity.
+
+---
+
+## 32. Nice-to-Have Features
+
+Implement only after the core demo works.
+
+- Render a final merged cut with FFmpeg.
+- Support sponsor-safe slot category.
+- Add accessibility profile.
+- Add a director prompt revision loop.
+- Add before/after slider for still props.
+- Add QR code export for viewer profile.
+- Add shareable cut URL.
+- Add “Why did this change?” explanation.
+- Add regional cache grouping.
+- Add asset lineage graph.
+- Add prompt version diff.
+- Add review history.
+
+---
+
+## 33. Final Build Priority
+
+The application must prioritize, in this order:
+
+1. Reliable playback
+2. Clear director control
+3. Visible personalization
+4. Canonical fallback
+5. Side-by-side comparison
+6. Cache behavior
+7. Live Nano Banana generation
+8. Live Omni generation
+9. Additional polish
+
+Do not sacrifice the first five items to improve live generation.
+
+---
+
+## 34. Final Handoff Instruction to Antigravity
+
+Build this as a desktop-first Next.js application named **Project Parallax**.
+
+Start in `AI_MODE=mock`.
+
+First make the entire product flow deterministic using seeded clips and images.
+
+Then implement:
+
+1. Director Studio
+2. Viewer profiles
+3. Segmented adaptive player
+4. Cache and job system
+5. Canonical fallback
+6. Compare screen
+7. Nano Banana integration
+8. Omni integration
+
+Use clean service boundaries so the model integrations can be replaced without changing the player or UI.
+
+The completed application must remain fully demonstrable even when all AI calls fail.
