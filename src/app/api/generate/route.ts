@@ -3,6 +3,7 @@ import { seedMovie, seedSlots, seedProfiles } from "@/lib/data/seed";
 import { GenerationQueue } from "@/lib/jobs/generation-queue";
 import { VideoGenerationService } from "@/lib/ai/video-generation.service";
 import { GenerationJob } from "@/lib/types";
+import { exportPlaybackFragmentForAsset } from "@/lib/playback/fragment-export";
 import fs from "fs";
 import path from "path";
 
@@ -21,9 +22,11 @@ const processJob = async (job: GenerationJob) => {
   const filePath = path.join(process.cwd(), 'public', 'media', 'generated', fileName);
   if (fs.existsSync(filePath)) {
     console.log(`Job ${job.id} already has generated video on disk. Bypassing API generation.`);
+    const videoAssetUrl = `/media/generated/${fileName}`;
+    await exportPlaybackFragmentForAsset(videoAssetUrl);
     await GenerationQueue.updateJob(job.id, { 
       status: "READY", 
-      videoAssetUrl: `/media/generated/${fileName}`,
+      videoAssetUrl,
       completedAt: new Date().toISOString()
     });
     return;
@@ -33,6 +36,7 @@ const processJob = async (job: GenerationJob) => {
     // Generate Video directly with Omni (image generation bypassed as requested)
     await GenerationQueue.updateJob(job.id, { status: "GENERATING_VIDEO" });
     const videoUrl = await VideoGenerationService.generateVideoInsert(slot, profile, job.id);
+    await exportPlaybackFragmentForAsset(videoUrl);
 
     // Mark job as ready
     await GenerationQueue.updateJob(job.id, { 
@@ -73,6 +77,8 @@ export async function POST(req: NextRequest) {
       const fileExists = fs.existsSync(filePath);
 
       if (fileExists) {
+        const videoAssetUrl = `/media/generated/${fileName}`;
+        await exportPlaybackFragmentForAsset(videoAssetUrl);
         // If file exists, ensure there is a READY job associated with it
         if (!job || job.status !== "READY") {
           job = {
@@ -82,7 +88,7 @@ export async function POST(req: NextRequest) {
             profileId,
             profileSnapshot: profile,
             status: "READY",
-            videoAssetUrl: `/media/generated/${fileName}`,
+            videoAssetUrl,
             cacheKey: `${slot.id}-${profile.locale}-${profile.city}`,
             approved: false,
             startedAt: new Date().toISOString(),

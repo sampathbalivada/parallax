@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { buildPlaybackManifest } from "./manifest.ts";
+import { MSE_PLAYBACK_MIME_TYPE, playbackFragmentUrl } from "./clips.ts";
 import type { AdaptiveSlot, GenerationJob, Movie } from "../types/index.ts";
 
 const movie: Movie = {
@@ -94,6 +95,9 @@ const existingAssets = new Set([
   "/media/generated/early.mp4",
   "/media/fallbacks/late.mp4",
 ]);
+for (const assetUrl of Array.from(existingAssets)) {
+  existingAssets.add(playbackFragmentUrl(assetUrl));
+}
 const manifest = buildPlaybackManifest({
   movie,
   slots,
@@ -108,9 +112,12 @@ assert.deepEqual(
 );
 assert.equal(manifest.segments[0].source, "CANONICAL_GAP");
 assert.equal(manifest.segments[0].assetUrl, "/media/canonical-gaps/canonical-gap-000.mp4");
+assert.equal(manifest.segments[0].mseAssetUrl, "/media/playback-fragments/canonical-gaps/canonical-gap-000.mp4");
+assert.equal(manifest.segments[0].mimeType, MSE_PLAYBACK_MIME_TYPE);
 assert.equal(manifest.segments[0].assetStartSeconds, 0);
 assert.equal(manifest.segments[1].source, "GENERATED_CLIP");
 assert.equal(manifest.segments[1].assetUrl, "/media/generated/early.mp4");
+assert.equal(manifest.segments[1].mseAssetUrl, "/media/playback-fragments/generated/early.mp4");
 assert.equal(manifest.segments[1].assetStartSeconds, 0);
 assert.equal(manifest.segments[2].source, "CANONICAL_GAP");
 assert.equal(manifest.segments[2].assetUrl, "/media/canonical-gaps/canonical-gap-001.mp4");
@@ -144,6 +151,17 @@ assert.throws(
       slots,
       jobs: [readyJob],
       assetExists: (assetUrl) => assetUrl !== "/media/canonical-gaps/canonical-gap-001.mp4",
+    }),
+  /Required playback asset missing/,
+);
+
+assert.throws(
+  () =>
+    buildPlaybackManifest({
+      movie,
+      slots,
+      jobs: [readyJob],
+      assetExists: (assetUrl) => assetUrl !== "/media/playback-fragments/generated/early.mp4",
     }),
   /Required playback asset missing/,
 );

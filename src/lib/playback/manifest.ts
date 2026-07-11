@@ -1,5 +1,5 @@
 import type { AdaptiveSlot, GenerationJob, Movie, PlaybackManifest, PlaybackSegment } from "../types";
-import { buildCanonicalGapClips, orderedEnabledSlots } from "./clips.ts";
+import { buildCanonicalGapClips, MSE_PLAYBACK_MIME_TYPE, orderedEnabledSlots, playbackFragmentUrl } from "./clips.ts";
 
 type BuildPlaybackManifestInput = {
   movie: Movie;
@@ -39,6 +39,18 @@ function assertAssetExists(assetUrl: string, assetExists: (assetUrl: string) => 
   }
 }
 
+function playbackAssetFields(assetUrl: string, assetExists: (assetUrl: string) => boolean) {
+  const mseAssetUrl = playbackFragmentUrl(assetUrl);
+  assertAssetExists(assetUrl, assetExists);
+  assertAssetExists(mseAssetUrl, assetExists);
+
+  return {
+    assetUrl,
+    mseAssetUrl,
+    mimeType: MSE_PLAYBACK_MIME_TYPE,
+  };
+}
+
 export function buildPlaybackManifest({
   movie,
   slots,
@@ -58,14 +70,14 @@ export function buildPlaybackManifest({
 
     if (slot.startSeconds > cursor + EPSILON_SECONDS) {
       const canonicalGap = canonicalGaps[canonicalGapIndex];
-      assertAssetExists(canonicalGap.url, assetExists);
+      const playbackAsset = playbackAssetFields(canonicalGap.url, assetExists);
 
       segments.push({
         id: canonicalGap.id,
         type: "CANONICAL",
         timelineStartSeconds: cursor,
         timelineEndSeconds: slot.startSeconds,
-        assetUrl: canonicalGap.url,
+        ...playbackAsset,
         assetStartSeconds: 0,
         expectedDurationSeconds: slot.startSeconds - cursor,
         source: "CANONICAL_GAP",
@@ -79,7 +91,7 @@ export function buildPlaybackManifest({
     const hasGeneratedAsset = job?.status === "READY" && Boolean(job.videoAssetUrl);
     const status = hasGeneratedAsset ? "READY" : job?.status === "FAILED" ? "FAILED" : job ? "GENERATING" : "FALLBACK";
     const assetUrl = hasGeneratedAsset ? job.videoAssetUrl! : slot.canonicalFallbackUrl;
-    assertAssetExists(assetUrl, assetExists);
+    const playbackAsset = playbackAssetFields(assetUrl, assetExists);
 
     segments.push({
       id: slot.id,
@@ -88,7 +100,7 @@ export function buildPlaybackManifest({
       type: "ADAPTIVE",
       timelineStartSeconds: slot.startSeconds,
       timelineEndSeconds: slot.endSeconds,
-      assetUrl,
+      ...playbackAsset,
       assetStartSeconds: 0,
       expectedDurationSeconds: slotDuration(slot),
       source: hasGeneratedAsset ? "GENERATED_CLIP" : "FALLBACK_CLIP",
@@ -102,14 +114,14 @@ export function buildPlaybackManifest({
 
   if (cursor < movie.durationSeconds - EPSILON_SECONDS) {
     const canonicalGap = canonicalGaps[canonicalGapIndex];
-    assertAssetExists(canonicalGap.url, assetExists);
+    const playbackAsset = playbackAssetFields(canonicalGap.url, assetExists);
 
     segments.push({
       id: canonicalGap.id,
       type: "CANONICAL",
       timelineStartSeconds: cursor,
       timelineEndSeconds: movie.durationSeconds,
-      assetUrl: canonicalGap.url,
+      ...playbackAsset,
       assetStartSeconds: 0,
       expectedDurationSeconds: movie.durationSeconds - cursor,
       source: "CANONICAL_GAP",

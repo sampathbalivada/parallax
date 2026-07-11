@@ -8,6 +8,7 @@ export type CanonicalGapClip = {
 };
 
 const EPSILON_SECONDS = 0.001;
+export const MSE_PLAYBACK_MIME_TYPE = 'video/mp4; codecs="avc1.64001f, mp4a.40.2"';
 
 export function orderedEnabledSlots(movie: Movie, slots: AdaptiveSlot[]) {
   return slots
@@ -17,6 +18,11 @@ export function orderedEnabledSlots(movie: Movie, slots: AdaptiveSlot[]) {
 
 export function canonicalGapClipUrl(index: number) {
   return `/media/canonical-gaps/canonical-gap-${String(index).padStart(3, "0")}.mp4`;
+}
+
+export function playbackFragmentUrl(assetUrl: string) {
+  const relativePath = assetUrl.startsWith("/media/") ? assetUrl.slice("/media/".length) : assetUrl.replace(/^\/+/, "");
+  return `/media/playback-fragments/${relativePath}`;
 }
 
 export function buildCanonicalGapClips(movie: Movie, slots: AdaptiveSlot[]) {

@@ -149,6 +149,8 @@ export interface PlaybackSegment {
   timelineStartSeconds: number;
   timelineEndSeconds: number;
   assetUrl: string;
+  mseAssetUrl: string;
+  mimeType: string;
   assetStartSeconds: number;
   expectedDurationSeconds: number;
   source: "CANONICAL_GAP" | "FALLBACK_CLIP" | "GENERATED_CLIP";

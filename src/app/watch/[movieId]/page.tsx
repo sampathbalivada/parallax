@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { seedMovie, seedProfiles } from "@/lib/data/seed";
@@ -56,9 +56,9 @@ function mergeFrozenSegments(
   });
 }
 
-const subscribeToHydration = () => () => {};
-const clientHydrationSnapshot = () => true;
-const serverHydrationSnapshot = () => false;
+type PlaybackMode = "MSE" | "DUAL_VIDEO_FALLBACK" | "MSE_ERROR";
+
+const MSE_ROLLING_AHEAD_SEGMENTS = 2;
 
 export default function WatchMoviePage() {
   const params = useParams();
@@ -71,10 +71,21 @@ export default function WatchMoviePage() {
 
   const primaryVideoRef = useRef<HTMLVideoElement>(null);
   const secondaryVideoRef = useRef<HTMLVideoElement>(null);
+  const mseVideoRef = useRef<HTMLVideoElement>(null);
   const currentSegmentIndexRef = useRef(0);
   const activePlayerIndexRef = useRef(0);
   const isPlayingRef = useRef(false);
   const segmentsRef = useRef<PlaybackSegment[]>([]);
+  const playbackModeRef = useRef<PlaybackMode>("MSE");
+  const mediaSourceRef = useRef<MediaSource | null>(null);
+  const sourceBufferRef = useRef<SourceBuffer | null>(null);
+  const mseObjectUrlRef = useRef<string | null>(null);
+  const mseAppendQueueRef = useRef<number[]>([]);
+  const mseQueuedKeysRef = useRef<Set<string>>(new Set());
+  const mseAppendedKeysRef = useRef<Set<string>>(new Set());
+  const mseAppendingRef = useRef(false);
+  const highestQueuedSegmentIndexRef = useRef(-1);
+  const highestAppendedSegmentIndexRef = useRef(-1);
 
   const [manifest, setManifest] = useState<PlaybackManifest | null>(null);
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
@@ -83,21 +94,29 @@ export default function WatchMoviePage() {
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
   const [timelineTime, setTimelineTime] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const hasHydrated = useSyncExternalStore(
-    subscribeToHydration,
-    clientHydrationSnapshot,
-    serverHydrationSnapshot,
-  );
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("MSE");
+  const [mseReady, setMseReady] = useState(false);
 
   const segments = useMemo(() => manifest?.segments || [], [manifest]);
   const currentSegment = segments[currentSegmentIndex];
-  const displaySegments = hasHydrated ? segments : [];
-  const displayCurrentSegment = hasHydrated ? currentSegment : undefined;
-  const displayTimelineTime = hasHydrated ? timelineTime : 0;
-  const displayIsPlaying = hasHydrated && isPlaying;
+  const displaySegments = segments;
+  const displayCurrentSegment = currentSegment;
+  const displayTimelineTime = timelineTime;
+  const displayIsPlaying = isPlaying;
   const videoRefs = useMemo(() => [primaryVideoRef, secondaryVideoRef], []);
+  const firstMseMimeType = segments[0]?.mimeType;
 
   const videoForIndex = useCallback((index: number) => videoRefs[index].current, [videoRefs]);
+  const mseSegmentKey = useCallback((segment: PlaybackSegment) => `${segment.id}:${segment.mseAssetUrl}`, []);
+
+  const switchToDualVideoFallback = useCallback((nextMode: PlaybackMode, reason: unknown) => {
+    setError(String(reason));
+    playbackModeRef.current = nextMode;
+    setPlaybackMode(nextMode);
+    setMseReady(false);
+    const mseVideo = mseVideoRef.current;
+    if (mseVideo) mseVideo.pause();
+  }, []);
 
   useEffect(() => {
     currentSegmentIndexRef.current = currentSegmentIndex;
@@ -115,6 +134,10 @@ export default function WatchMoviePage() {
     segmentsRef.current = segments;
   }, [segments]);
 
+  useEffect(() => {
+    playbackModeRef.current = playbackMode;
+  }, [playbackMode]);
+
   const fetchManifest = useCallback(async (mode: "replace" | "merge-future") => {
     if (!movieId) return;
 
@@ -131,7 +154,10 @@ export default function WatchMoviePage() {
     setManifest((current) => {
       if (!current || mode === "replace") return data.manifest!;
 
-      const freezeThroughIndex = currentSegmentIndexRef.current + 1;
+      const freezeThroughIndex =
+        playbackModeRef.current === "MSE"
+          ? Math.max(currentSegmentIndexRef.current + 1, highestQueuedSegmentIndexRef.current)
+          : currentSegmentIndexRef.current + 1;
       return {
         ...data.manifest!,
         segments: mergeFrozenSegments(current.segments, data.manifest!.segments, freezeThroughIndex),
@@ -146,6 +172,8 @@ export default function WatchMoviePage() {
         setCurrentSegmentIndex(0);
         setActivePlayerIndex(0);
         setTimelineTime(0);
+        setPlaybackMode("MSE");
+        playbackModeRef.current = "MSE";
       })
       .catch((err) => setError(String(err)));
 
@@ -176,7 +204,182 @@ export default function WatchMoviePage() {
     return () => clearInterval(interval);
   }, [fetchManifest, movieId, profileId]);
 
+  const processMseAppendQueue = useCallback(async () => {
+    if (mseAppendingRef.current) return;
+
+    const sourceBuffer = sourceBufferRef.current;
+    const mediaSource = mediaSourceRef.current;
+    if (!sourceBuffer || !mediaSource || sourceBuffer.updating) return;
+
+    mseAppendingRef.current = true;
+
+    try {
+      while (mseAppendQueueRef.current.length > 0) {
+        const nextIndex = mseAppendQueueRef.current.shift();
+        if (nextIndex === undefined) break;
+
+        const segment = segmentsRef.current[nextIndex];
+        if (!segment) continue;
+
+        const response = await fetch(segment.mseAssetUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch MSE segment ${segment.mseAssetUrl}: ${response.status}`);
+        }
+
+        const buffer = await response.arrayBuffer();
+        await new Promise<void>((resolve, reject) => {
+          const cleanup = () => {
+            sourceBuffer.removeEventListener("updateend", handleUpdateEnd);
+            sourceBuffer.removeEventListener("error", handleError);
+          };
+          const handleUpdateEnd = () => {
+            cleanup();
+            resolve();
+          };
+          const handleError = () => {
+            cleanup();
+            reject(new Error(`MSE append failed for ${segment.mseAssetUrl}`));
+          };
+
+          sourceBuffer.addEventListener("updateend", handleUpdateEnd, { once: true });
+          sourceBuffer.addEventListener("error", handleError, { once: true });
+          sourceBuffer.appendBuffer(buffer);
+        });
+
+        mseAppendedKeysRef.current.add(mseSegmentKey(segment));
+        highestAppendedSegmentIndexRef.current = Math.max(highestAppendedSegmentIndexRef.current, nextIndex);
+
+        if (nextIndex === segmentsRef.current.length - 1 && mediaSource.readyState === "open" && !sourceBuffer.updating) {
+          mediaSource.endOfStream();
+        }
+      }
+    } catch (err) {
+      switchToDualVideoFallback("MSE_ERROR", err);
+      return;
+    } finally {
+      mseAppendingRef.current = false;
+    }
+  }, [mseSegmentKey, switchToDualVideoFallback]);
+
+  const queueMseSegmentsThrough = useCallback((targetIndex: number) => {
+    const currentSegments = segmentsRef.current;
+    const cappedTargetIndex = Math.min(targetIndex, currentSegments.length - 1);
+
+    for (let index = 0; index <= cappedTargetIndex; index++) {
+      const segment = currentSegments[index];
+      if (!segment) continue;
+
+      const key = mseSegmentKey(segment);
+      if (mseQueuedKeysRef.current.has(key) || mseAppendedKeysRef.current.has(key)) continue;
+
+      mseQueuedKeysRef.current.add(key);
+      mseAppendQueueRef.current.push(index);
+      highestQueuedSegmentIndexRef.current = Math.max(highestQueuedSegmentIndexRef.current, index);
+    }
+
+    void processMseAppendQueue();
+  }, [mseSegmentKey, processMseAppendQueue]);
+
   useEffect(() => {
+    const video = mseVideoRef.current;
+    if (!firstMseMimeType || !video) return;
+
+    if (!("MediaSource" in window) || !MediaSource.isTypeSupported(firstMseMimeType)) {
+      queueMicrotask(() => switchToDualVideoFallback("DUAL_VIDEO_FALLBACK", `MSE unsupported: ${firstMseMimeType}`));
+      return;
+    }
+
+    const mediaSource = new MediaSource();
+    const objectUrl = URL.createObjectURL(mediaSource);
+    mediaSourceRef.current = mediaSource;
+    mseObjectUrlRef.current = objectUrl;
+    sourceBufferRef.current = null;
+    mseAppendQueueRef.current = [];
+    mseQueuedKeysRef.current = new Set();
+    mseAppendedKeysRef.current = new Set();
+    mseAppendingRef.current = false;
+    highestQueuedSegmentIndexRef.current = -1;
+    highestAppendedSegmentIndexRef.current = -1;
+
+    video.src = objectUrl;
+
+    const handleSourceOpen = () => {
+      try {
+        const sourceBuffer = mediaSource.addSourceBuffer(firstMseMimeType);
+        sourceBuffer.mode = "sequence";
+        sourceBufferRef.current = sourceBuffer;
+        setMseReady(true);
+        queueMseSegmentsThrough(MSE_ROLLING_AHEAD_SEGMENTS);
+      } catch (err) {
+        switchToDualVideoFallback("MSE_ERROR", err);
+      }
+    };
+
+    mediaSource.addEventListener("sourceopen", handleSourceOpen, { once: true });
+
+    return () => {
+      mediaSource.removeEventListener("sourceopen", handleSourceOpen);
+      setMseReady(false);
+      sourceBufferRef.current = null;
+      mediaSourceRef.current = null;
+      mseAppendQueueRef.current = [];
+      mseQueuedKeysRef.current = new Set();
+      mseAppendedKeysRef.current = new Set();
+      mseAppendingRef.current = false;
+      if (mseObjectUrlRef.current) {
+        URL.revokeObjectURL(mseObjectUrlRef.current);
+        mseObjectUrlRef.current = null;
+      }
+    };
+  }, [firstMseMimeType, queueMseSegmentsThrough, switchToDualVideoFallback]);
+
+  useEffect(() => {
+    if (playbackMode !== "MSE" || !mseReady) return;
+    queueMseSegmentsThrough(currentSegmentIndex + MSE_ROLLING_AHEAD_SEGMENTS);
+  }, [currentSegmentIndex, mseReady, playbackMode, queueMseSegmentsThrough, segments]);
+
+  useEffect(() => {
+    if (playbackMode !== "MSE") return;
+    if (!mseReady) return;
+
+    const video = mseVideoRef.current;
+    if (!video) return;
+
+    if (isPlaying) {
+      video.play().catch((err) => switchToDualVideoFallback("MSE_ERROR", err));
+    } else {
+      video.pause();
+    }
+  }, [isPlaying, mseReady, playbackMode, switchToDualVideoFallback]);
+
+  const handleMseTimeUpdate = () => {
+    const video = mseVideoRef.current;
+    const currentSegments = segmentsRef.current;
+    if (!video || currentSegments.length === 0) return;
+
+    const nextTimelineTime = Math.min(movie.durationSeconds, Math.max(0, video.currentTime));
+    setTimelineTime(nextTimelineTime);
+
+    const nextSegmentIndex = currentSegments.findIndex((segment) => nextTimelineTime < segment.timelineEndSeconds);
+    const resolvedSegmentIndex = nextSegmentIndex === -1 ? currentSegments.length - 1 : nextSegmentIndex;
+    if (resolvedSegmentIndex !== currentSegmentIndexRef.current) {
+      currentSegmentIndexRef.current = resolvedSegmentIndex;
+      setCurrentSegmentIndex(resolvedSegmentIndex);
+    }
+  };
+
+  const handleMseEnded = () => {
+    const video = mseVideoRef.current;
+    if (video) video.currentTime = 0;
+    setIsPlaying(false);
+    setCurrentSegmentIndex(0);
+    currentSegmentIndexRef.current = 0;
+    setTimelineTime(0);
+  };
+
+  useEffect(() => {
+    if (playbackMode === "MSE") return;
+
     const nextSegment = segments[currentSegmentIndex + 1];
     const standbyVideo = videoForIndex(1 - activePlayerIndex);
     if (!nextSegment || !standbyVideo) return;
@@ -188,9 +391,11 @@ export default function WatchMoviePage() {
       standbyVideo.src = nextSegment.assetUrl;
       standbyVideo.load();
     }
-  }, [activePlayerIndex, currentSegmentIndex, segments, videoForIndex]);
+  }, [activePlayerIndex, currentSegmentIndex, playbackMode, segments, videoForIndex]);
 
   useEffect(() => {
+    if (playbackMode === "MSE") return;
+
     const video = videoForIndex(activePlayerIndex);
     if (!video || !currentSegment) return;
 
@@ -218,10 +423,11 @@ export default function WatchMoviePage() {
     return () => {
       cancelled = true;
     };
-  }, [activePlayerIndex, currentSegment, isPlaying, videoForIndex]);
+  }, [activePlayerIndex, currentSegment, isPlaying, playbackMode, videoForIndex]);
 
   const handleTimeUpdate = (playerIndex: number) => {
     if (playerIndex !== activePlayerIndexRef.current) return;
+    if (playbackModeRef.current === "MSE") return;
 
     const video = videoForIndex(playerIndex);
     const segment = segmentsRef.current[currentSegmentIndexRef.current];
@@ -240,6 +446,7 @@ export default function WatchMoviePage() {
 
   const handleEnded = (playerIndex: number) => {
     if (playerIndex !== activePlayerIndexRef.current) return;
+    if (playbackModeRef.current === "MSE") return;
 
     const currentSegments = segmentsRef.current;
     const index = currentSegmentIndexRef.current;
@@ -289,8 +496,17 @@ export default function WatchMoviePage() {
       <Card className="bg-zinc-900 border-zinc-800 overflow-hidden">
         <div className="aspect-video bg-black flex flex-col items-center justify-center relative">
           <video
+            ref={mseVideoRef}
+            className={`absolute inset-0 w-full h-full object-cover ${playbackMode === "MSE" ? "opacity-100" : "opacity-0"}`}
+            onTimeUpdate={handleMseTimeUpdate}
+            onEnded={handleMseEnded}
+            controls={false}
+            preload="auto"
+            playsInline
+          />
+          <video
             ref={primaryVideoRef}
-            className={`absolute inset-0 w-full h-full object-cover ${activePlayerIndex === 0 ? "opacity-100" : "opacity-0"}`}
+            className={`absolute inset-0 w-full h-full object-cover ${playbackMode !== "MSE" && activePlayerIndex === 0 ? "opacity-100" : "opacity-0"}`}
             onTimeUpdate={() => handleTimeUpdate(0)}
             onEnded={() => handleEnded(0)}
             controls={false}
@@ -299,7 +515,7 @@ export default function WatchMoviePage() {
           />
           <video
             ref={secondaryVideoRef}
-            className={`absolute inset-0 w-full h-full object-cover ${activePlayerIndex === 1 ? "opacity-100" : "opacity-0"}`}
+            className={`absolute inset-0 w-full h-full object-cover ${playbackMode !== "MSE" && activePlayerIndex === 1 ? "opacity-100" : "opacity-0"}`}
             onTimeUpdate={() => handleTimeUpdate(1)}
             onEnded={() => handleEnded(1)}
             controls={false}
@@ -308,7 +524,7 @@ export default function WatchMoviePage() {
           />
 
           <div className="absolute top-4 left-4 p-2 bg-black/60 rounded text-xs font-mono text-white/50 pointer-events-none">
-            Segment: {displayCurrentSegment?.source || "LOADING"} ({displaySegments.length ? currentSegmentIndex + 1 : 0}/{displaySegments.length})
+            Segment: {displayCurrentSegment?.source || "LOADING"} ({displaySegments.length ? currentSegmentIndex + 1 : 0}/{displaySegments.length}) · {playbackMode}
           </div>
 
           {error && (

@@ -6,6 +6,7 @@ import path from "path";
 import fs from "fs";
 import { seedMovie, seedSlots } from "@/lib/data/seed";
 import { buildCanonicalGapClips, orderedEnabledSlots } from "@/lib/playback/clips";
+import { exportPlaybackFragmentForAsset } from "@/lib/playback/fragment-export";
 
 const execPromise = util.promisify(exec);
 
@@ -13,6 +14,7 @@ export async function exportSegmentsAction() {
   const inputPath = path.join(process.cwd(), "public", "media", "canonical-full.mp4");
   const fallbackDir = path.join(process.cwd(), "public", "media", "fallbacks");
   const canonicalGapDir = path.join(process.cwd(), "public", "media", "canonical-gaps");
+  const playbackFragmentDir = path.join(process.cwd(), "public", "media", "playback-fragments");
   
   if (!fs.existsSync(inputPath)) {
     throw new Error("canonical-full.mp4 not found in public/media/");
@@ -26,6 +28,10 @@ export async function exportSegmentsAction() {
     fs.mkdirSync(canonicalGapDir, { recursive: true });
   }
 
+  if (!fs.existsSync(playbackFragmentDir)) {
+    fs.mkdirSync(playbackFragmentDir, { recursive: true });
+  }
+
   try {
     const orderedSlots = orderedEnabledSlots(seedMovie, seedSlots);
     const canonicalGaps = buildCanonicalGapClips(seedMovie, seedSlots);
@@ -37,6 +43,7 @@ export async function exportSegmentsAction() {
 
       console.log(`Exporting ${gap.id} from ${gap.startSeconds} to ${gap.endSeconds}...`);
       await execPromise(cmd);
+      await exportPlaybackFragmentForAsset(gap.url);
     }
 
     for (const slot of orderedSlots) {
@@ -48,6 +55,7 @@ export async function exportSegmentsAction() {
       
       console.log(`Exporting ${slot.id} segment from ${slot.startSeconds} to ${slot.endSeconds}...`);
       await execPromise(cmd);
+      await exportPlaybackFragmentForAsset(slot.canonicalFallbackUrl);
     }
     return { success: true };
   } catch (error) {
