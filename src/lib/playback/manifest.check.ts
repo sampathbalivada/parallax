@@ -87,16 +87,37 @@ const readyJob: GenerationJob = {
   approved: false,
 };
 
-const manifest = buildPlaybackManifest({ movie, slots, jobs: [readyJob], preparedAt: "fixed" });
+const existingAssets = new Set([
+  "/media/canonical-gaps/canonical-gap-000.mp4",
+  "/media/canonical-gaps/canonical-gap-001.mp4",
+  "/media/canonical-gaps/canonical-gap-002.mp4",
+  "/media/generated/early.mp4",
+  "/media/fallbacks/late.mp4",
+]);
+const manifest = buildPlaybackManifest({
+  movie,
+  slots,
+  jobs: [readyJob],
+  preparedAt: "fixed",
+  assetExists: (assetUrl) => existingAssets.has(assetUrl),
+});
 
 assert.deepEqual(
   manifest.segments.map((segment) => segment.id),
-  ["canonical-0", "early", "canonical-2", "late", "canonical-end"],
+  ["canonical-gap-000", "early", "canonical-gap-001", "late", "canonical-gap-002"],
 );
+assert.equal(manifest.segments[0].source, "CANONICAL_GAP");
+assert.equal(manifest.segments[0].assetUrl, "/media/canonical-gaps/canonical-gap-000.mp4");
+assert.equal(manifest.segments[0].assetStartSeconds, 0);
 assert.equal(manifest.segments[1].source, "GENERATED_CLIP");
 assert.equal(manifest.segments[1].assetUrl, "/media/generated/early.mp4");
+assert.equal(manifest.segments[1].assetStartSeconds, 0);
+assert.equal(manifest.segments[2].source, "CANONICAL_GAP");
+assert.equal(manifest.segments[2].assetUrl, "/media/canonical-gaps/canonical-gap-001.mp4");
 assert.equal(manifest.segments[3].source, "FALLBACK_CLIP");
 assert.equal(manifest.segments[3].assetUrl, "/media/fallbacks/late.mp4");
+assert.equal(manifest.segments[4].source, "CANONICAL_GAP");
+assert.equal(manifest.segments[4].assetUrl, "/media/canonical-gaps/canonical-gap-002.mp4");
 assert.equal(manifest.segments[0].timelineStartSeconds, 0);
 assert.equal(manifest.segments[0].timelineEndSeconds, 10);
 assert.equal(manifest.segments[2].timelineStartSeconds, 12);
@@ -111,8 +132,20 @@ assert.throws(
         { ...slots[0], id: "overlap-b", startSeconds: 13, endSeconds: 16 },
       ],
       jobs: [],
+      assetExists: () => true,
     }),
   /overlaps/,
+);
+
+assert.throws(
+  () =>
+    buildPlaybackManifest({
+      movie,
+      slots,
+      jobs: [readyJob],
+      assetExists: (assetUrl) => assetUrl !== "/media/canonical-gaps/canonical-gap-001.mp4",
+    }),
+  /Required playback asset missing/,
 );
 
 console.log("Playback manifest checks passed");

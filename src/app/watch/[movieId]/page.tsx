@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { seedMovie, seedProfiles } from "@/lib/data/seed";
@@ -56,6 +56,10 @@ function mergeFrozenSegments(
   });
 }
 
+const subscribeToHydration = () => () => {};
+const clientHydrationSnapshot = () => true;
+const serverHydrationSnapshot = () => false;
+
 export default function WatchMoviePage() {
   const params = useParams();
   const movieId = paramsValue(params.movieId);
@@ -65,24 +69,47 @@ export default function WatchMoviePage() {
   const movie = seedMovie;
   const profile = seedProfiles.find((candidate) => candidate.id === profileId) || seedProfiles[0];
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const preloadVideoRef = useRef<HTMLVideoElement>(null);
+  const primaryVideoRef = useRef<HTMLVideoElement>(null);
+  const secondaryVideoRef = useRef<HTMLVideoElement>(null);
   const currentSegmentIndexRef = useRef(0);
+  const activePlayerIndexRef = useRef(0);
+  const isPlayingRef = useRef(false);
   const segmentsRef = useRef<PlaybackSegment[]>([]);
 
   const [manifest, setManifest] = useState<PlaybackManifest | null>(null);
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
+  const [activePlayerIndex, setActivePlayerIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
   const [timelineTime, setTimelineTime] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const hasHydrated = useSyncExternalStore(
+    subscribeToHydration,
+    clientHydrationSnapshot,
+    serverHydrationSnapshot,
+  );
 
   const segments = useMemo(() => manifest?.segments || [], [manifest]);
   const currentSegment = segments[currentSegmentIndex];
+  const displaySegments = hasHydrated ? segments : [];
+  const displayCurrentSegment = hasHydrated ? currentSegment : undefined;
+  const displayTimelineTime = hasHydrated ? timelineTime : 0;
+  const displayIsPlaying = hasHydrated && isPlaying;
+  const videoRefs = useMemo(() => [primaryVideoRef, secondaryVideoRef], []);
+
+  const videoForIndex = useCallback((index: number) => videoRefs[index].current, [videoRefs]);
 
   useEffect(() => {
     currentSegmentIndexRef.current = currentSegmentIndex;
   }, [currentSegmentIndex]);
+
+  useEffect(() => {
+    activePlayerIndexRef.current = activePlayerIndex;
+  }, [activePlayerIndex]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
   useEffect(() => {
     segmentsRef.current = segments;
@@ -117,6 +144,7 @@ export default function WatchMoviePage() {
       .then(() => {
         setError(null);
         setCurrentSegmentIndex(0);
+        setActivePlayerIndex(0);
         setTimelineTime(0);
       })
       .catch((err) => setError(String(err)));
@@ -150,17 +178,20 @@ export default function WatchMoviePage() {
 
   useEffect(() => {
     const nextSegment = segments[currentSegmentIndex + 1];
-    const preloadVideo = preloadVideoRef.current;
-    if (!nextSegment || !preloadVideo) return;
+    const standbyVideo = videoForIndex(1 - activePlayerIndex);
+    if (!nextSegment || !standbyVideo) return;
 
-    if (preloadVideo.getAttribute("src") !== nextSegment.assetUrl) {
-      preloadVideo.src = nextSegment.assetUrl;
-      preloadVideo.load();
+    standbyVideo.pause();
+    standbyVideo.currentTime = 0;
+
+    if (standbyVideo.getAttribute("src") !== nextSegment.assetUrl) {
+      standbyVideo.src = nextSegment.assetUrl;
+      standbyVideo.load();
     }
-  }, [currentSegmentIndex, segments]);
+  }, [activePlayerIndex, currentSegmentIndex, segments, videoForIndex]);
 
   useEffect(() => {
-    const video = videoRef.current;
+    const video = videoForIndex(activePlayerIndex);
     if (!video || !currentSegment) return;
 
     let cancelled = false;
@@ -172,7 +203,7 @@ export default function WatchMoviePage() {
         video.load();
         await waitForMetadata(video);
         if (cancelled) return;
-        video.currentTime = currentSegment.assetStartSeconds;
+        video.currentTime = 0;
       }
 
       if (isPlaying) {
@@ -187,34 +218,49 @@ export default function WatchMoviePage() {
     return () => {
       cancelled = true;
     };
-  }, [currentSegment, isPlaying]);
+  }, [activePlayerIndex, currentSegment, isPlaying, videoForIndex]);
 
-  const handleTimeUpdate = () => {
-    const video = videoRef.current;
+  const handleTimeUpdate = (playerIndex: number) => {
+    if (playerIndex !== activePlayerIndexRef.current) return;
+
+    const video = videoForIndex(playerIndex);
     const segment = segmentsRef.current[currentSegmentIndexRef.current];
     if (!video || !segment) return;
 
-    const elapsed = Math.max(0, video.currentTime - segment.assetStartSeconds);
+    const elapsed = Math.max(0, video.currentTime);
     const nextTimelineTime = Math.min(segment.timelineEndSeconds, segment.timelineStartSeconds + elapsed);
     setTimelineTime(nextTimelineTime);
 
-    const expectedEnd = segment.assetStartSeconds + segment.expectedDurationSeconds;
-    const shouldAdvance =
-      segment.source === "CANONICAL_FULL"
-        ? video.currentTime >= segment.timelineEndSeconds
-        : video.currentTime >= expectedEnd || video.ended;
+    const shouldAdvance = video.currentTime >= segment.expectedDurationSeconds || video.ended;
 
     if (shouldAdvance) {
-      handleEnded();
+      handleEnded(playerIndex);
     }
   };
 
-  const handleEnded = () => {
+  const handleEnded = (playerIndex: number) => {
+    if (playerIndex !== activePlayerIndexRef.current) return;
+
     const currentSegments = segmentsRef.current;
     const index = currentSegmentIndexRef.current;
 
     if (index < currentSegments.length - 1) {
       const nextIndex = index + 1;
+      const currentVideo = videoForIndex(activePlayerIndexRef.current);
+      const nextPlayerIndex = 1 - activePlayerIndexRef.current;
+      const nextVideo = videoForIndex(nextPlayerIndex);
+
+      currentVideo?.pause();
+      if (nextVideo) {
+        nextVideo.currentTime = 0;
+        if (isPlayingRef.current) {
+          nextVideo.play().catch((err) => setError(String(err)));
+        }
+      }
+
+      activePlayerIndexRef.current = nextPlayerIndex;
+      currentSegmentIndexRef.current = nextIndex;
+      setActivePlayerIndex(nextPlayerIndex);
       setCurrentSegmentIndex(nextIndex);
       setTimelineTime(currentSegments[nextIndex].timelineStartSeconds);
     } else {
@@ -243,17 +289,26 @@ export default function WatchMoviePage() {
       <Card className="bg-zinc-900 border-zinc-800 overflow-hidden">
         <div className="aspect-video bg-black flex flex-col items-center justify-center relative">
           <video
-            ref={videoRef}
-            className="w-full h-full object-cover"
-            onTimeUpdate={handleTimeUpdate}
-            onEnded={handleEnded}
+            ref={primaryVideoRef}
+            className={`absolute inset-0 w-full h-full object-cover ${activePlayerIndex === 0 ? "opacity-100" : "opacity-0"}`}
+            onTimeUpdate={() => handleTimeUpdate(0)}
+            onEnded={() => handleEnded(0)}
             controls={false}
+            preload="auto"
             playsInline
           />
-          <video ref={preloadVideoRef} className="hidden" preload="auto" muted playsInline />
+          <video
+            ref={secondaryVideoRef}
+            className={`absolute inset-0 w-full h-full object-cover ${activePlayerIndex === 1 ? "opacity-100" : "opacity-0"}`}
+            onTimeUpdate={() => handleTimeUpdate(1)}
+            onEnded={() => handleEnded(1)}
+            controls={false}
+            preload="auto"
+            playsInline
+          />
 
           <div className="absolute top-4 left-4 p-2 bg-black/60 rounded text-xs font-mono text-white/50 pointer-events-none">
-            Segment: {currentSegment?.source || "LOADING"} ({segments.length ? currentSegmentIndex + 1 : 0}/{segments.length})
+            Segment: {displayCurrentSegment?.source || "LOADING"} ({displaySegments.length ? currentSegmentIndex + 1 : 0}/{displaySegments.length})
           </div>
 
           {error && (
@@ -266,14 +321,14 @@ export default function WatchMoviePage() {
             <button
               className="w-10 h-10 bg-white text-black rounded-full flex items-center justify-center font-bold"
               onClick={() => setIsPlaying((value) => !value)}
-              disabled={!currentSegment}
+              disabled={!displayCurrentSegment}
             >
-              {isPlaying ? "||" : "▶"}
+              {displayIsPlaying ? "||" : "▶"}
             </button>
             <div className="flex-1 h-1.5 bg-white/20 rounded-full relative overflow-hidden">
               <div
                 className="absolute top-0 left-0 bottom-0 bg-[#E50914] transition-all duration-300"
-                style={{ width: `${(timelineTime / movie.durationSeconds) * 100}%` }}
+                style={{ width: `${(displayTimelineTime / movie.durationSeconds) * 100}%` }}
               />
             </div>
           </div>
@@ -287,7 +342,7 @@ export default function WatchMoviePage() {
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            {segments.filter((segment) => segment.type === "ADAPTIVE").map((segment) => {
+            {displaySegments.filter((segment) => segment.type === "ADAPTIVE").map((segment) => {
               const job = jobs.find((candidate) => candidate.slotId === segment.slotId);
               const statusLabel = job?.status === "READY" ? segment.status : job?.status || segment.status;
 

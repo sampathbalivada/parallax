@@ -151,7 +151,7 @@ export interface PlaybackSegment {
   assetUrl: string;
   assetStartSeconds: number;
   expectedDurationSeconds: number;
-  source: "CANONICAL_FULL" | "FALLBACK_CLIP" | "GENERATED_CLIP";
+  source: "CANONICAL_GAP" | "FALLBACK_CLIP" | "GENERATED_CLIP";
   canonicalUrl?: string;
   personalizedUrl?: string;
   status: "READY" | "GENERATING" | "FALLBACK" | "FAILED";
