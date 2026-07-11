@@ -53,7 +53,7 @@ const processJob = async (job: GenerationJob) => {
 
 export async function POST(req: NextRequest) {
   try {
-    const { movieId, profileId } = await req.json();
+    const { movieId, profileId, slotId, force = false } = await req.json();
 
     const profile = seedProfiles.find(p => p.id === profileId);
     if (!profile) {
@@ -64,11 +64,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Movie not found" }, { status: 400 });
     }
 
+    const requestedSlots = slotId ? seedSlots.filter((slot) => slot.id === slotId) : seedSlots;
+    if (slotId && requestedSlots.length === 0) {
+      return NextResponse.json({ success: false, error: "Segment not found" }, { status: 400 });
+    }
+
     const enqueuedJobs: GenerationJob[] = [];
 
     // Queue up jobs for all adaptive slots
-    for (const slot of seedSlots) {
-      const jobId = `job-${movieId}-${slot.id}-${profileId}`;
+    for (const slot of requestedSlots) {
+      const baseJobId = `job-${movieId}-${slot.id}-${profileId}`;
+      const jobId = force ? `${baseJobId}-v${Date.now()}` : baseJobId;
       let job = await GenerationQueue.getJob(jobId);
 
       // Check if file is already generated and stored in /generated directory
@@ -92,6 +98,7 @@ export async function POST(req: NextRequest) {
             cacheKey: `${slot.id}-${profile.locale}-${profile.city}`,
             approved: false,
             startedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
             completedAt: new Date().toISOString()
           };
           await GenerationQueue.enqueue(job);
@@ -107,7 +114,8 @@ export async function POST(req: NextRequest) {
           status: "QUEUED",
           cacheKey: `${slot.id}-${profile.locale}-${profile.city}`,
           approved: false,
-          startedAt: new Date().toISOString()
+          startedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString()
         };
         await GenerationQueue.enqueue(job);
         

@@ -116,6 +116,7 @@ export interface GenerationJob {
   videoAssetUrl?: string;
 
   startedAt?: string;
+  createdAt?: string;
   completedAt?: string;
   failureReason?: string;
 

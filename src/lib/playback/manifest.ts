@@ -30,7 +30,15 @@ function assertValidSlot(slot: AdaptiveSlot, movie: Movie, previousSlot?: Adapti
 }
 
 function jobForSlot(jobs: GenerationJob[], slotId: string) {
-  return jobs.find((job) => job.slotId === slotId);
+  const variants = jobs
+    .filter((job) => job.slotId === slotId)
+    .sort((left, right) => {
+      const leftTime = new Date(left.createdAt || left.startedAt || 0).getTime();
+      const rightTime = new Date(right.createdAt || right.startedAt || 0).getTime();
+      return rightTime - leftTime;
+    });
+
+  return variants.find((job) => job.status === "READY") || variants[0];
 }
 
 function assertAssetExists(assetUrl: string, assetExists: (assetUrl: string) => boolean) {

@@ -1,19 +1,20 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { exportSegmentsAction } from "@/app/actions";
 import { seedMovie, seedSlots } from "@/lib/data/seed";
-import { AdaptiveSlot } from "@/lib/types";
+import { GenerationJob } from "@/lib/types";
+import { seedProfiles } from "@/lib/data/seed";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus } from "lucide-react";
+import { LoaderCircle, Plus, RefreshCw } from "lucide-react";
 
 export default function DirectorMoviePage() {
   const { movieId } = useParams();
@@ -41,8 +42,49 @@ export default function DirectorMoviePage() {
     immutableFacts: ""
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedProfileId, setSelectedProfileId] = useState(seedProfiles[0]?.id || "");
+  const [variants, setVariants] = useState<GenerationJob[]>([]);
+  const [isRegenerating, setIsRegenerating] = useState(false);
 
   const selectedSlot = slots.find(s => s.id === selectedSlotId);
+
+  const loadVariants = useCallback(async () => {
+    const response = await fetch(`/api/jobs?movieId=${movie.id}`);
+    const data = await response.json();
+    if (data.success) setVariants(data.jobs);
+  }, [movie.id]);
+
+  useEffect(() => {
+    const initialLoad = window.setTimeout(loadVariants, 0);
+    const interval = window.setInterval(loadVariants, 3000);
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.clearInterval(interval);
+    };
+  }, [loadVariants]);
+
+  const handleRegenerate = async () => {
+    if (!selectedSlot || !selectedProfileId) return;
+    setIsRegenerating(true);
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ movieId: movie.id, profileId: selectedProfileId, slotId: selectedSlot.id, force: true }),
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || "Generation failed");
+      await loadVariants();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Generation failed");
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  const selectedVariants = variants
+    .filter((variant) => variant.slotId === selectedSlotId)
+    .sort((left, right) => new Date(right.createdAt || right.startedAt || 0).getTime() - new Date(left.createdAt || left.startedAt || 0).getTime());
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -53,7 +95,7 @@ export default function DirectorMoviePage() {
       } else {
         alert("Export failed: " + res.error);
       }
-    } catch (e) {
+    } catch {
       alert("Export failed!");
     } finally {
       setIsExporting(false);
@@ -88,8 +130,8 @@ export default function DirectorMoviePage() {
       } else {
         alert("Error saving: " + data.error);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
       alert("Error saving segment.");
     } finally {
       setIsSaving(false);
@@ -106,7 +148,7 @@ export default function DirectorMoviePage() {
       } else {
         alert("Error deleting: " + data.error);
       }
-    } catch (e) {
+    } catch {
       alert("Error deleting segment.");
     }
   };
@@ -348,11 +390,45 @@ export default function DirectorMoviePage() {
                   </ul>
                 </div>
                 
-                <div className="mt-4 pt-4 border-t border-zinc-800">
-                   <div className="text-slate-400 mb-2">Generated Variants (Mock)</div>
-                   <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-md text-center text-zinc-600">
-                      No variants generated yet.
-                   </div>
+                <div className="mt-4 pt-4 border-t border-zinc-800 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-slate-400">Generated Variants</div>
+                    <span className="text-xs text-zinc-500">Latest ready variant powers viewer cut</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <select
+                      aria-label="Viewer profile"
+                      value={selectedProfileId}
+                      onChange={(event) => setSelectedProfileId(event.target.value)}
+                      className="h-9 min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-2 text-sm text-slate-200"
+                    >
+                      {seedProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.displayName} · {profile.city}</option>)}
+                    </select>
+                    <Button size="sm" onClick={handleRegenerate} disabled={isRegenerating} title="Generate new variant">
+                      {isRegenerating ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                      <span className="sr-only">Regenerate selected segment</span>
+                    </Button>
+                  </div>
+                  {selectedVariants.length ? (
+                    <div className="space-y-2">
+                      {selectedVariants.map((variant, index) => {
+                        const profile = seedProfiles.find((candidate) => candidate.id === variant.profileId) || variant.profileSnapshot;
+                        return (
+                          <div key={variant.id} className="border border-zinc-800 bg-zinc-950 p-3 rounded-md space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium text-slate-200 truncate">{profile.displayName} · {profile.city}</span>
+                              <Badge variant="outline" className={variant.status === "READY" ? "border-emerald-700 text-emerald-300" : variant.status === "FAILED" ? "border-red-800 text-red-300" : "border-amber-700 text-amber-300"}>{variant.status}</Badge>
+                            </div>
+                            <div className="text-xs text-zinc-500">{index === 0 ? "Current" : "Previous"} · {new Date(variant.createdAt || variant.startedAt || 0).toLocaleString()}</div>
+                            {variant.videoAssetUrl && <video className="w-full aspect-video bg-black" controls preload="metadata" src={variant.videoAssetUrl} />}
+                            {variant.failureReason && <div className="text-xs text-red-300">{variant.failureReason}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-md text-center text-zinc-600">No variants generated yet.</div>
+                  )}
                 </div>
               </CardContent>
             </Card>
