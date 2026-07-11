@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { exportSegmentsAction } from "@/app/actions";
-import { seedMovie, seedSlots } from "@/lib/data/seed";
+import { seedMovies, seedSlots } from "@/lib/data/seed";
 import { GenerationJob } from "@/lib/types";
 import { seedProfiles } from "@/lib/data/seed";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,8 +18,10 @@ import { LoaderCircle, Plus, RefreshCw } from "lucide-react";
 
 export default function DirectorMoviePage() {
   const { movieId } = useParams();
-  const movie = seedMovie; // In a real app, fetch based on movieId
-  const slots = seedSlots;
+  const routeMovieId = Array.isArray(movieId) ? movieId[0] : movieId;
+  const selectedMovie = seedMovies.find((candidate) => candidate.id === routeMovieId);
+  const movie = selectedMovie || seedMovies[0];
+  const slots = seedSlots.filter((slot) => slot.movieId === movie?.id);
   
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(slots[0]?.id || null);
   const [isExporting, setIsExporting] = useState(false);
@@ -89,7 +91,7 @@ export default function DirectorMoviePage() {
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      const res = await exportSegmentsAction();
+      const res = await exportSegmentsAction(movie.id);
       if (res.success) {
         alert("Segments exported successfully!");
       } else {
@@ -112,7 +114,7 @@ export default function DirectorMoviePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...newSegment,
-          movieId,
+          movieId: movie.id,
           editableFields: newSegment.editableFields.split(",").map(s => s.trim()).filter(Boolean),
           immutableFacts: newSegment.immutableFacts.split(",").map(s => s.trim()).filter(Boolean),
         })
@@ -184,7 +186,7 @@ export default function DirectorMoviePage() {
     videoRef.current.currentTime += forward ? FRAME_TIME : -FRAME_TIME;
   };
 
-  if (movieId !== movie.id) {
+  if (!selectedMovie) {
     return <div className="p-8">Movie not found</div>;
   }
 
@@ -219,6 +221,7 @@ export default function DirectorMoviePage() {
                       <option value="CITY_ESTABLISHING">City Establishing</option>
                       <option value="LOCALIZED_PROP">Localized Prop</option>
                       <option value="DIEGETIC_SCREEN">Diegetic Screen</option>
+                      <option value="ADSPOT_BILLBOARD">Adspots / Billboards</option>
                     </select>
                   </div>
                 </div>

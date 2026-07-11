@@ -52,19 +52,118 @@ export const seedProfiles: ViewerProfile[] = [
 ];
 
 export const seedMovie: Movie = {
-  "id": "hotel-mystery-001",
-  "title": "Dhurandhar",
-  "description": "Ishq Jalakar",
-  "durationSeconds": 33,
-  "canonicalVideoUrl": "/media/canonical-full.mp4",
+  "id": "billboards-1783764076569",
+  "title": "Billboards",
+  "description": "What if Ad Campaigns were dynamic?",
+  "durationSeconds": 53.345,
+  "canonicalVideoUrl": "/media/uploads/billboards-1783764076569/billboards-1783764076569.mp4",
   "manifestVersion": 1,
   "promptVersion": 1,
-  "status": "ready",
-  "createdAt": "2026-07-11T07:03:58.779Z",
-  "updatedAt": "2026-07-11T07:03:58.779Z"
+  "status": "draft",
+  "createdAt": "2026-07-11T10:01:16.805Z",
+  "updatedAt": "2026-07-11T10:01:16.805Z"
 };
 
+export const seedMovies: Movie[] = [
+  {
+    "id": "billboards-1783764076569",
+    "title": "Billboards",
+    "description": "What if Ad Campaigns were dynamic?",
+    "durationSeconds": 53.345,
+    "canonicalVideoUrl": "/media/uploads/billboards-1783764076569/billboards-1783764076569.mp4",
+    "manifestVersion": 1,
+    "promptVersion": 1,
+    "status": "draft",
+    "createdAt": "2026-07-11T10:01:16.805Z",
+    "updatedAt": "2026-07-11T10:01:16.805Z"
+  },
+  {
+    "id": "hotel-mystery-001",
+    "title": "Dhurandhar",
+    "description": "Ishq Jalakar",
+    "durationSeconds": 33,
+    "canonicalVideoUrl": "/media/canonical-full.mp4",
+    "manifestVersion": 1,
+    "promptVersion": 1,
+    "status": "ready",
+    "createdAt": "2026-07-11T07:03:58.779Z",
+    "updatedAt": "2026-07-11T07:03:58.779Z"
+  }
+];
+
 export const seedSlots: AdaptiveSlot[] = [
+  {
+    "id": "slot-custom-1783764413824",
+    "movieId": "billboards-1783764076569",
+    "label": "Billboard 2",
+    "type": "LOCALIZED_PROP",
+    "startSeconds": 9.495,
+    "endSeconds": 13.41,
+    "generationLeadSeconds": 30,
+    "generationDeadlineSeconds": 5,
+    "narrativePurpose": "A billboard that is left intentionally blank to fill in ad campaigns",
+    "editableFields": [
+      "the billboard"
+    ],
+    "immutableFacts": [
+      "rest of the scene",
+      "colour grading",
+      "field"
+    ],
+    "prohibitedChanges": [],
+    "visualConstraints": {
+      "preserveDuration": true,
+      "preserveCameraMotion": false,
+      "preserveLighting": false,
+      "preserveCharacters": false,
+      "preserveForegroundObjects": false
+    },
+    "supportedLocales": [
+      "en-US",
+      "te-IN",
+      "ja-JP",
+      "fr-FR"
+    ],
+    "canonicalFallbackUrl": "/media/fallbacks/slot-custom-1783764413824-generic.mp4",
+    "generationStrategy": "IMAGE_THEN_VIDEO",
+    "isEnabled": true
+  },
+  {
+    "id": "slot-custom-1783764299331",
+    "movieId": "billboards-1783764076569",
+    "label": "Billboard 1",
+    "type": "ADSPOT_BILLBOARD",
+    "startSeconds": 0,
+    "endSeconds": 4.514,
+    "generationLeadSeconds": 30,
+    "generationDeadlineSeconds": 5,
+    "narrativePurpose": "An open billboard spot to advertise or convey a media campaign.",
+    "editableFields": [
+      "the billboard"
+    ],
+    "immutableFacts": [
+      "rest of the scene",
+      "colour grading",
+      "field"
+    ],
+    "prohibitedChanges": [],
+    "visualConstraints": {
+      "preserveDuration": true,
+      "preserveCameraMotion": false,
+      "preserveLighting": false,
+      "preserveCharacters": false,
+      "preserveForegroundObjects": false
+    },
+    "supportedLocales": [
+      "en-US",
+      "te-IN",
+      "ja-JP",
+      "fr-FR"
+    ],
+    "canonicalFallbackUrl": "/media/fallbacks/slot-custom-1783764299331-generic.mp4",
+    "generationStrategy": "IMAGE_THEN_VIDEO",
+    "isEnabled": true
+  },
   {
     "id": "slot-custom-1783753927541",
     "movieId": "hotel-mystery-001",

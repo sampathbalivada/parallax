@@ -4,20 +4,26 @@ import { exec } from "child_process";
 import util from "util";
 import path from "path";
 import fs from "fs";
-import { seedMovie, seedSlots } from "@/lib/data/seed";
+import { allMovies, publicMediaPathFromUrl } from "@/lib/data/studio-store";
+import { seedSlots } from "@/lib/data/seed";
 import { buildCanonicalGapClips, orderedEnabledSlots } from "@/lib/playback/clips";
 import { exportPlaybackFragmentForAsset } from "@/lib/playback/fragment-export";
 
 const execPromise = util.promisify(exec);
 
-export async function exportSegmentsAction() {
-  const inputPath = path.join(process.cwd(), "public", "media", "canonical-full.mp4");
+export async function exportSegmentsAction(movieId: string) {
+  const movie = allMovies().find((candidate) => candidate.id === movieId);
+  if (!movie) {
+    throw new Error("Movie not found");
+  }
+
+  const inputPath = publicMediaPathFromUrl(movie.canonicalVideoUrl);
   const fallbackDir = path.join(process.cwd(), "public", "media", "fallbacks");
   const canonicalGapDir = path.join(process.cwd(), "public", "media", "canonical-gaps");
   const playbackFragmentDir = path.join(process.cwd(), "public", "media", "playback-fragments");
   
   if (!fs.existsSync(inputPath)) {
-    throw new Error("canonical-full.mp4 not found in public/media/");
+    throw new Error(`${movie.canonicalVideoUrl} not found in public/`);
   }
 
   if (!fs.existsSync(fallbackDir)) {
@@ -33,8 +39,9 @@ export async function exportSegmentsAction() {
   }
 
   try {
-    const orderedSlots = orderedEnabledSlots(seedMovie, seedSlots);
-    const canonicalGaps = buildCanonicalGapClips(seedMovie, seedSlots);
+    const movieSlots = seedSlots.filter((slot) => slot.movieId === movie.id);
+    const orderedSlots = orderedEnabledSlots(movie, movieSlots);
+    const canonicalGaps = buildCanonicalGapClips(movie, movieSlots);
 
     for (const gap of canonicalGaps) {
       const outputPath = path.join(process.cwd(), "public", gap.url);

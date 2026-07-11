@@ -15,7 +15,8 @@ export interface Movie {
 export type SlotType =
   | "CITY_ESTABLISHING"
   | "LOCALIZED_PROP"
-  | "DIEGETIC_SCREEN";
+  | "DIEGETIC_SCREEN"
+  | "ADSPOT_BILLBOARD";
 
 export interface AdaptiveSlot {
   id: string;

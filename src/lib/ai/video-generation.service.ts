@@ -82,6 +82,7 @@ This prompt must direct Gemini Omni to perform localized personalizations and mo
         const preGenerationPrompt = `Please generate an editing prompt for the Gemini Omni video-to-video model.
 Use the following inputs to design the prompt:
 - Narrative purpose: ${slot.narrativePurpose}
+- Segment type: ${slot.type}
 - Target Editable Fields (ONLY these should be changed): ${editableFieldsStr}
 - Immutable Facts (Strictly preserve these as-is): ${immutableFactsStr}
 - Prohibited Changes: ${prohibitedChangesStr}
@@ -92,7 +93,7 @@ Use the following inputs to design the prompt:
   * Cultural Context: ${culturalContextStr}
 
 Instructions for the generated prompt:
-1. It must specify exactly what to change (e.g. modify the 'welcome board' or 'tail number' to match the viewer's city, language script, and cultural theme).
+1. It must specify exactly what to change (e.g. modify the 'welcome board', 'tail number', billboard, poster, sponsored ad spot, storefront ad, or digital ad panel to match the viewer's city, language script, and cultural theme).
 2. It must explicitly state what elements of the video to keep identical (the camera motion, actors, lighting, and rest of the scene).
 3. Ensure the tone is clear, direct, and imperative.
 4. Output ONLY the finalized prompt that will be fed to Gemini Omni. Do NOT include any intro or wrap-up text (like "Here is your prompt:"). Output the pure prompt directly.`;
@@ -117,8 +118,9 @@ Instructions for the generated prompt:
       - Viewer's Location: ${profile.city}, ${profile.country}.
       - Cultural context: ${culturalContextStr}.
       - Narrative goal: ${slot.narrativePurpose}.
+      - Segment type: ${slot.type}.
       - Localized editable elements: ${editableFieldsStr}.
-      Please modify the editable parts (such as signs, logos, flags, screens, text, or specific background elements) to fit this location, cultural theme, and narrative.
+      Please modify the editable parts (such as signs, logos, flags, screens, billboards, posters, sponsored ad spots, storefront ads, digital ad panels, text, or specific background elements) to fit this location, cultural theme, and narrative.
       IMPORTANT: Keep the camera motion, overall timing, actors, and overall scene structure exactly identical to the original clip. Only perform seamless editing/replacement on the target localized props.`;
       }
 

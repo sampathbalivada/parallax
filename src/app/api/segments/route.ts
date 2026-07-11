@@ -1,25 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import { AdaptiveSlot } from "@/lib/types";
-import { seedProfiles, seedMovie, seedSlots } from "@/lib/data/seed";
-
-const writeSeedFile = (slots: AdaptiveSlot[]) => {
-  const dataFilePath = path.join(process.cwd(), "src", "lib", "data", "seed.ts");
-  const newFileContent = `import { ViewerProfile, Movie, AdaptiveSlot } from "@/lib/types";
-
-export const seedProfiles: ViewerProfile[] = ${JSON.stringify(seedProfiles, null, 2)};
-
-export const seedMovie: Movie = ${JSON.stringify(seedMovie, null, 2)};
-
-export const seedSlots: AdaptiveSlot[] = ${JSON.stringify(slots, null, 2)};
-`;
-  fs.writeFileSync(dataFilePath, newFileContent);
-};
+import { seedSlots } from "@/lib/data/seed";
+import { allMovies, writeStudioSeedFile } from "@/lib/data/studio-store";
 
 export async function POST(req: NextRequest) {
   try {
     const { movieId, startSeconds, endSeconds, label, type, narrativePurpose, editableFields, immutableFacts } = await req.json();
+    const movie = allMovies().find((candidate) => candidate.id === movieId);
+
+    if (!movie) {
+      return NextResponse.json({ success: false, error: "Movie not found" }, { status: 400 });
+    }
+
+    if (!label || !type || !Number.isFinite(startSeconds) || !Number.isFinite(endSeconds) || endSeconds <= startSeconds) {
+      return NextResponse.json({ success: false, error: "Segment requires label, type, and valid start/end seconds" }, { status: 400 });
+    }
 
     const newSlotId = `slot-custom-${Date.now()}`;
     const newSlot: AdaptiveSlot = {
@@ -49,7 +44,7 @@ export async function POST(req: NextRequest) {
     };
 
     const updatedSlots = [newSlot, ...seedSlots];
-    writeSeedFile(updatedSlots);
+    writeStudioSeedFile({ slots: updatedSlots });
 
     return NextResponse.json({ success: true, slot: newSlot });
   } catch (error) {
@@ -68,7 +63,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     const updatedSlots = seedSlots.filter(slot => slot.id !== id);
-    writeSeedFile(updatedSlots);
+    writeStudioSeedFile({ slots: updatedSlots });
 
     return NextResponse.json({ success: true });
   } catch (error) {

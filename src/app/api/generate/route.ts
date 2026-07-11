@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { seedMovie, seedSlots, seedProfiles } from "@/lib/data/seed";
+import { seedSlots, seedProfiles } from "@/lib/data/seed";
+import { allMovies } from "@/lib/data/studio-store";
 import { GenerationQueue } from "@/lib/jobs/generation-queue";
 import { VideoGenerationService } from "@/lib/ai/video-generation.service";
 import { GenerationJob } from "@/lib/types";
@@ -60,11 +61,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Profile not found" }, { status: 400 });
     }
 
-    if (movieId !== seedMovie.id) {
+    const movie = allMovies().find((candidate) => candidate.id === movieId);
+    if (!movie) {
       return NextResponse.json({ success: false, error: "Movie not found" }, { status: 400 });
     }
 
-    const requestedSlots = slotId ? seedSlots.filter((slot) => slot.id === slotId) : seedSlots;
+    const movieSlots = seedSlots.filter((slot) => slot.movieId === movie.id);
+    const requestedSlots = slotId ? movieSlots.filter((slot) => slot.id === slotId) : movieSlots;
     if (slotId && requestedSlots.length === 0) {
       return NextResponse.json({ success: false, error: "Segment not found" }, { status: 400 });
     }
