@@ -29,7 +29,7 @@ Visual Constraints: ${JSON.stringify(slot.visualConstraints)}
 `;
 
       const response = await ai.models.generateImages({
-          model: 'gemini-3.1-flash-lite-image', // Using Nano Banana 2 Lite
+          model: 'imagen-4.0-generate-001', // Using Imagen 4.0 production model
           prompt,
           config: {
               numberOfImages: 1,
@@ -42,7 +42,10 @@ Visual Constraints: ${JSON.stringify(slot.visualConstraints)}
         throw new Error("No image generated");
       }
 
-      const base64Image = response.generatedImages[0].image.imageBytes;
+      const base64Image = response.generatedImages[0].image?.imageBytes;
+      if (!base64Image) {
+        throw new Error("No imageBytes in response");
+      }
       
       // Save it to a file
       const fileName = `${jobId}.jpg`;

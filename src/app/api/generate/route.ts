@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { seedMovie, seedSlots, seedProfiles } from "@/lib/data/seed";
 import { GenerationQueue } from "@/lib/jobs/generation-queue";
-import { ImageGenerationService } from "@/lib/ai/image-generation.service";
 import { VideoGenerationService } from "@/lib/ai/video-generation.service";
 import { GenerationJob } from "@/lib/types";
+import fs from "fs";
+import path from "path";
 
 // Async function to run generation process in the background
 const processJob = async (job: GenerationJob) => {
@@ -15,21 +16,25 @@ const processJob = async (job: GenerationJob) => {
     return;
   }
 
+  // Check if file is already on disk as a failsafe
+  const fileName = `${job.id}.mp4`;
+  const filePath = path.join(process.cwd(), 'public', 'media', 'generated', fileName);
+  if (fs.existsSync(filePath)) {
+    console.log(`Job ${job.id} already has generated video on disk. Bypassing API generation.`);
+    await GenerationQueue.updateJob(job.id, { 
+      status: "READY", 
+      videoAssetUrl: `/media/generated/${fileName}`,
+      completedAt: new Date().toISOString()
+    });
+    return;
+  }
+
   try {
-    let imageUrl: string | undefined;
-
-    // 1. Generate Image (if required)
-    if (slot.generationStrategy === "IMAGE_THEN_VIDEO" || slot.generationStrategy === "IMAGE_COMPOSITE") {
-      await GenerationQueue.updateJob(job.id, { status: "GENERATING_IMAGE" });
-      imageUrl = await ImageGenerationService.generateKeyframe(slot, profile, job.id);
-      await GenerationQueue.updateJob(job.id, { status: "IMAGE_READY", imageAssetUrl: imageUrl });
-    }
-
-    // 2. Generate Video
+    // Generate Video directly with Omni (image generation bypassed as requested)
     await GenerationQueue.updateJob(job.id, { status: "GENERATING_VIDEO" });
-    const videoUrl = await VideoGenerationService.generateVideoInsert(slot, profile, job.id, imageUrl);
+    const videoUrl = await VideoGenerationService.generateVideoInsert(slot, profile, job.id);
 
-    // 3. Mark job as ready
+    // Mark job as ready
     await GenerationQueue.updateJob(job.id, { 
       status: "READY", 
       videoAssetUrl: videoUrl,
@@ -59,11 +64,34 @@ export async function POST(req: NextRequest) {
 
     // Queue up jobs for all adaptive slots
     for (const slot of seedSlots) {
-      // Check if job already exists for this slot & profile
       const jobId = `job-${movieId}-${slot.id}-${profileId}`;
       let job = await GenerationQueue.getJob(jobId);
 
-      if (!job) {
+      // Check if file is already generated and stored in /generated directory
+      const fileName = `${jobId}.mp4`;
+      const filePath = path.join(process.cwd(), 'public', 'media', 'generated', fileName);
+      const fileExists = fs.existsSync(filePath);
+
+      if (fileExists) {
+        // If file exists, ensure there is a READY job associated with it
+        if (!job || job.status !== "READY") {
+          job = {
+            id: jobId,
+            movieId,
+            slotId: slot.id,
+            profileId,
+            profileSnapshot: profile,
+            status: "READY",
+            videoAssetUrl: `/media/generated/${fileName}`,
+            cacheKey: `${slot.id}-${profile.locale}-${profile.city}`,
+            approved: false,
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString()
+          };
+          await GenerationQueue.enqueue(job);
+        }
+      } else if (!job) {
+        // Enqueue background processing if not exists
         job = {
           id: jobId,
           movieId,

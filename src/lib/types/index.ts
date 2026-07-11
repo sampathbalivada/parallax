@@ -149,5 +149,5 @@ export interface PlaybackSegment {
   canonicalUrl: string;
   personalizedUrl?: string;
   activeUrl: string;
-  status: "READY" | "GENERATING" | "FALLBACK";
+  status: "READY" | "GENERATING" | "FALLBACK" | "FAILED";
 }

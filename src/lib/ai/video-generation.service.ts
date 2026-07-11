@@ -1,6 +1,7 @@
 import { ViewerProfile, AdaptiveSlot } from '../types';
 import fs from 'fs';
 import path from 'path';
+import { GoogleGenAI } from '@google/genai';
 
 export const VideoGenerationService = {
   generateVideoInsert: async (
@@ -12,32 +13,124 @@ export const VideoGenerationService = {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       console.warn("No GEMINI_API_KEY found, falling back to mock video for", slot.id);
-      // Simulate rendering time
       await new Promise(resolve => setTimeout(resolve, 4000));
       return slot.canonicalFallbackUrl;
     }
 
     try {
-      console.log(`Calling gemini-omni-flash-preview to generate video insert for job ${jobId}...`);
-      
-      // Note: As of early 2026, gemini-omni-flash-preview video generation API 
-      // might require specific multimodal generation endpoints. 
-      // For this hackathon implementation, we'll simulate the successful response
-      // if the API key is present, returning our mock video representing the real 
-      // generated asset, as true arbitrary video generation via flash-omni might 
-      // be experimental or require specific GCP vertex endpoints not in standard SDK.
-      
-      await new Promise(resolve => setTimeout(resolve, 4000));
-      
-      // If we had a real output, we would save it to:
-      // const fileName = `${jobId}.mp4`;
-      // const filePath = path.join(process.cwd(), 'public', 'media', 'generated', fileName);
-      // fs.writeFileSync(filePath, videoBuffer);
-      // return `/media/generated/${fileName}`;
-      
-      return slot.canonicalFallbackUrl;
+      console.log(`Starting real gemini-omni-flash-preview video localization for job ${jobId}...`);
+      const ai = new GoogleGenAI({ apiKey });
+
+      // Resolve the physical absolute path to the local fallback video
+      const relativeFallbackPath = slot.canonicalFallbackUrl.startsWith('/') 
+        ? slot.canonicalFallbackUrl.substring(1) 
+        : slot.canonicalFallbackUrl;
+      const localFallbackPath = path.join(process.cwd(), 'public', relativeFallbackPath);
+
+      if (!fs.existsSync(localFallbackPath)) {
+        console.warn(`Local fallback video not found at: ${localFallbackPath}. Falling back to default URI.`);
+        return slot.canonicalFallbackUrl;
+      }
+
+      console.log(`Uploading fallback video: ${localFallbackPath}`);
+      const uploadResult = await ai.files.upload({
+        file: localFallbackPath,
+        config: {
+          mimeType: 'video/mp4',
+          displayName: `fallback-${slot.id}`
+        }
+      });
+
+      console.log(`Uploaded successfully! File reference: ${uploadResult.name}. Polling status...`);
+
+      // Poll until video state is ACTIVE
+      let file = uploadResult as any;
+      let retries = 0;
+      const maxRetries = 20; // Up to 100 seconds
+      const fileName = uploadResult.name;
+      if (!fileName) {
+        throw new Error("Upload did not return a valid file name");
+      }
+
+      while ((file.state === 'PROCESSING' || file.state === 'STATE_UNSPECIFIED') && retries < maxRetries) {
+        console.log(`Video processing state: ${file.state}. Waiting 5s (attempt ${retries + 1}/${maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        file = await ai.files.get({ name: fileName }) as any;
+        retries++;
+      }
+
+      const currentState = file.state;
+      if (currentState !== 'ACTIVE') {
+        throw new Error(`Video file activation failed or timed out. Current state: ${currentState}`);
+      }
+      console.log('Video is now ACTIVE on Gemini. Initiating video-to-video editing...');
+
+      // Build the editing/personalization query
+      const culturalContextStr = profile.culturalContext?.join(", ") || "None";
+      const editableFieldsStr = slot.editableFields?.join(", ") || "background props";
+
+      const promptText = `Based on this video clip, generate a new personalized, edited version of this segment.
+      - Viewer's Location: ${profile.city}, ${profile.country}.
+      - Cultural context: ${culturalContextStr}.
+      - Narrative goal: ${slot.narrativePurpose}.
+      - Localized editable elements: ${editableFieldsStr}.
+      Please modify the editable parts (such as signs, logos, flags, screens, text, or specific background elements) to fit this location, cultural theme, and narrative.
+      IMPORTANT: Keep the camera motion, overall timing, actors, and overall scene structure exactly identical to the original clip. Only perform seamless editing/replacement on the target localized props.`;
+
+      console.log(`Sending edit prompt: ${promptText}`);
+
+      const interaction = await ai.interactions.create({
+        model: 'gemini-omni-flash-preview',
+        input: [
+          {
+            type: 'video',
+            uri: file.uri,
+            mime_type: file.mimeType
+          },
+          {
+            type: 'text',
+            text: promptText
+          }
+        ],
+        response_format: {
+          type: 'video',
+          delivery: 'uri'
+        }
+      });
+
+      if (!interaction.output_video?.uri) {
+        throw new Error('Omni interaction did not return a valid output video URI');
+      }
+
+      console.log(`Omni video edit completed! Output URI: ${interaction.output_video.uri}`);
+
+      // Parse output file reference
+      const fileIdMatch = interaction.output_video.uri.match(/files\/[a-zA-Z0-9]+/);
+      if (!fileIdMatch) {
+        throw new Error(`Could not parse file reference from output URI: ${interaction.output_video.uri}`);
+      }
+      const fileId = fileIdMatch[0];
+
+      // Prepare local output directory
+      const outputDir = path.join(process.cwd(), 'public', 'media', 'generated');
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
+
+      const outputFileName = `${jobId}.mp4`;
+      const outputFilePath = path.join(outputDir, outputFileName);
+
+      console.log(`Downloading personalized segment to: ${outputFilePath}`);
+      await ai.files.download({
+        file: fileId,
+        downloadPath: outputFilePath
+      });
+
+      console.log(`Download complete! Serving personalized segment at: /media/generated/${outputFileName}`);
+      return `/media/generated/${outputFileName}`;
+
     } catch (error) {
-      console.error("Video generation failed:", error);
+      console.error("Video-to-video editing failed. Falling back to default canonical video segment.", error);
       return slot.canonicalFallbackUrl;
     }
   }
