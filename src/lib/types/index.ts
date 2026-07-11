@@ -144,10 +144,22 @@ export interface CacheEntry {
 export interface PlaybackSegment {
   id: string;
   type: "CANONICAL" | "ADAPTIVE";
-  startSeconds: number;
-  endSeconds: number;
-  canonicalUrl: string;
+  slotId?: string;
+  label?: string;
+  timelineStartSeconds: number;
+  timelineEndSeconds: number;
+  assetUrl: string;
+  assetStartSeconds: number;
+  expectedDurationSeconds: number;
+  source: "CANONICAL_FULL" | "FALLBACK_CLIP" | "GENERATED_CLIP";
+  canonicalUrl?: string;
   personalizedUrl?: string;
-  activeUrl: string;
   status: "READY" | "GENERATING" | "FALLBACK" | "FAILED";
+}
+
+export interface PlaybackManifest {
+  movieId: string;
+  durationSeconds: number;
+  preparedAt: string;
+  segments: PlaybackSegment[];
 }

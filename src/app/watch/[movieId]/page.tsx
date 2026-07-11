@@ -1,175 +1,208 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { seedMovie, seedSlots, seedProfiles } from "@/lib/data/seed";
-import { PlaybackSegment, GenerationJob } from "@/lib/types";
+import { seedMovie, seedProfiles } from "@/lib/data/seed";
+import { GenerationJob, PlaybackManifest, PlaybackSegment } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
+type PrepareResponse = {
+  success: boolean;
+  manifest?: PlaybackManifest;
+  error?: string;
+};
+
+function paramsValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function waitForMetadata(video: HTMLVideoElement) {
+  if (video.readyState >= 1) return Promise.resolve();
+
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      video.removeEventListener("loadedmetadata", handleMetadata);
+      video.removeEventListener("error", handleError);
+    };
+    const handleMetadata = () => {
+      cleanup();
+      resolve();
+    };
+    const handleError = () => {
+      cleanup();
+      reject(new Error("Video metadata failed to load"));
+    };
+
+    video.addEventListener("loadedmetadata", handleMetadata, { once: true });
+    video.addEventListener("error", handleError, { once: true });
+  });
+}
+
+function mergeFrozenSegments(
+  currentSegments: PlaybackSegment[],
+  nextSegments: PlaybackSegment[],
+  freezeThroughIndex: number,
+) {
+  if (currentSegments.length === 0) return nextSegments;
+
+  return nextSegments.map((segment, index) => {
+    const current = currentSegments[index];
+    if (index <= freezeThroughIndex && current?.id === segment.id) {
+      return current;
+    }
+    return segment;
+  });
+}
+
 export default function WatchMoviePage() {
-  const { movieId } = useParams();
+  const params = useParams();
+  const movieId = paramsValue(params.movieId);
   const searchParams = useSearchParams();
   const profileId = searchParams.get("profile");
 
   const movie = seedMovie;
-  const slots = seedSlots;
-  const profile = seedProfiles.find(p => p.id === profileId) || seedProfiles[0];
+  const profile = seedProfiles.find((candidate) => candidate.id === profileId) || seedProfiles[0];
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  
-  // Segments setup
-  const [segments, setSegments] = useState<PlaybackSegment[]>([]);
+  const preloadVideoRef = useRef<HTMLVideoElement>(null);
+  const currentSegmentIndexRef = useRef(0);
+  const segmentsRef = useRef<PlaybackSegment[]>([]);
+
+  const [manifest, setManifest] = useState<PlaybackManifest | null>(null);
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isClient, setIsClient] = useState(false);
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
+  const [timelineTime, setTimelineTime] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  const segments = useMemo(() => manifest?.segments || [], [manifest]);
+  const currentSegment = segments[currentSegmentIndex];
 
   useEffect(() => {
-    setIsClient(true);
-    
-    // Trigger generation automatically when the page loads for a specific profile
+    currentSegmentIndexRef.current = currentSegmentIndex;
+  }, [currentSegmentIndex]);
+
+  useEffect(() => {
+    segmentsRef.current = segments;
+  }, [segments]);
+
+  const fetchManifest = useCallback(async (mode: "replace" | "merge-future") => {
+    if (!movieId) return;
+
+    const params = new URLSearchParams({ movieId });
+    if (profileId) params.set("profileId", profileId);
+
+    const response = await fetch(`/api/cuts/prepare?${params.toString()}`);
+    const data = (await response.json()) as PrepareResponse;
+
+    if (!data.success || !data.manifest) {
+      throw new Error(data.error || "Failed to prepare playback manifest");
+    }
+
+    setManifest((current) => {
+      if (!current || mode === "replace") return data.manifest!;
+
+      const freezeThroughIndex = currentSegmentIndexRef.current + 1;
+      return {
+        ...data.manifest!,
+        segments: mergeFrozenSegments(current.segments, data.manifest!.segments, freezeThroughIndex),
+      };
+    });
+  }, [movieId, profileId]);
+
+  useEffect(() => {
+    fetchManifest("replace")
+      .then(() => {
+        setError(null);
+        setCurrentSegmentIndex(0);
+        setTimelineTime(0);
+      })
+      .catch((err) => setError(String(err)));
+
     if (profileId) {
       fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ movieId, profileId })
+        body: JSON.stringify({ movieId, profileId }),
       }).catch(console.error);
     }
-  }, [movieId, profileId]);
+  }, [fetchManifest, movieId, profileId]);
 
-  // Polling for job status
   useEffect(() => {
     if (!profileId) return;
-    
+
     const interval = setInterval(() => {
       fetch(`/api/jobs?movieId=${movieId}&profileId=${profileId}`)
-        .then(res => res.json())
-        .then(data => {
+        .then((res) => res.json())
+        .then((data) => {
           if (data.success && data.jobs) {
             setJobs(data.jobs);
+            return fetchManifest("merge-future");
           }
         })
-        .catch(console.error);
+        .catch((err) => setError(String(err)));
     }, 2000);
-    
+
     return () => clearInterval(interval);
-  }, [movieId, profileId]);
+  }, [fetchManifest, movieId, profileId]);
 
   useEffect(() => {
-    // Build a mock list of segments based on the slots
-    // In a real implementation, this comes from the /api/cuts/prepare endpoint
-    const buildSegments = () => {
-      const mockSegments: PlaybackSegment[] = [];
-      let currentTime = 0;
+    const nextSegment = segments[currentSegmentIndex + 1];
+    const preloadVideo = preloadVideoRef.current;
+    if (!nextSegment || !preloadVideo) return;
 
-      slots.forEach((slot, index) => {
-        // Add canonical segment before the slot if there is a gap
-        if (slot.startSeconds > currentTime) {
-          mockSegments.push({
-            id: `canonical-before-${slot.id}`,
-            type: "CANONICAL",
-            startSeconds: currentTime,
-            endSeconds: slot.startSeconds,
-            canonicalUrl: movie.canonicalVideoUrl, // Mock URL
-            activeUrl: movie.canonicalVideoUrl,
-            status: "READY"
-          });
-        }
-        // Find corresponding job for this slot
-        const job = jobs.find(j => j.slotId === slot.id);
-        
-        let status = "FALLBACK";
-        let activeUrl = slot.canonicalFallbackUrl;
-        
-        if (job) {
-          if (job.status === "READY" && job.videoAssetUrl) {
-            status = "READY";
-            activeUrl = job.videoAssetUrl;
-          } else if (job.status === "FAILED") {
-            status = "FAILED";
-          } else {
-            status = job.status;
-          }
-        }
-        
-        mockSegments.push({
-          id: slot.id,
-          type: "ADAPTIVE",
-          startSeconds: slot.startSeconds,
-          endSeconds: slot.endSeconds,
-          canonicalUrl: slot.canonicalFallbackUrl,
-          activeUrl: activeUrl, 
-          status: status as any
-        });
+    if (preloadVideo.getAttribute("src") !== nextSegment.assetUrl) {
+      preloadVideo.src = nextSegment.assetUrl;
+      preloadVideo.load();
+    }
+  }, [currentSegmentIndex, segments]);
 
-        currentTime = slot.endSeconds;
-      });
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !currentSegment) return;
 
-      // Add remaining canonical segment
-      if (currentTime < movie.durationSeconds) {
-        mockSegments.push({
-          id: `canonical-end`,
-          type: "CANONICAL",
-          startSeconds: currentTime,
-          endSeconds: movie.durationSeconds,
-          canonicalUrl: movie.canonicalVideoUrl,
-          activeUrl: movie.canonicalVideoUrl,
-          status: "READY"
-        });
+    let cancelled = false;
+
+    const loadSegment = async () => {
+      const srcChanged = video.getAttribute("src") !== currentSegment.assetUrl;
+      if (srcChanged) {
+        video.src = currentSegment.assetUrl;
+        video.load();
+        await waitForMetadata(video);
+        if (cancelled) return;
+        video.currentTime = currentSegment.assetStartSeconds;
       }
 
-      setSegments(mockSegments);
+      if (isPlaying) {
+        await video.play();
+      } else {
+        video.pause();
+      }
     };
 
-    buildSegments();
-  }, [movie, slots, jobs]);
+    loadSegment().catch((err) => setError(String(err)));
 
-  useEffect(() => {
-    if (!videoRef.current || segments.length === 0 || !isClient) return;
-
-    const segment = segments[currentSegmentIndex];
-    
-    // Only update src if it's different to avoid reloading
-    if (videoRef.current.getAttribute('src') !== segment.activeUrl) {
-      videoRef.current.src = segment.activeUrl;
-      videoRef.current.load();
-      
-      // If canonical, seek to the start of this segment within the full video
-      if (segment.type === 'CANONICAL') {
-        videoRef.current.currentTime = segment.startSeconds;
-      }
-    }
-
-    if (isPlaying) {
-      videoRef.current.play().catch(e => console.error("Playback failed", e));
-    } else {
-      videoRef.current.pause();
-    }
-  }, [currentSegmentIndex, segments, isPlaying, isClient]);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSegment, isPlaying]);
 
   const handleTimeUpdate = () => {
-    if (!videoRef.current || segments.length === 0) return;
-    
-    const currentSegment = segments[currentSegmentIndex];
-    const currentTime = videoRef.current.currentTime;
+    const video = videoRef.current;
+    const segment = segmentsRef.current[currentSegmentIndexRef.current];
+    if (!video || !segment) return;
 
-    // Check if we've reached the end of the current segment
-    let shouldAdvance = false;
-    
-    if (currentSegment.type === 'CANONICAL') {
-      // Canonical video is the full file, so we check absolute time
-      if (currentTime >= currentSegment.endSeconds) {
-        shouldAdvance = true;
-      }
-    } else {
-      // Adaptive video is a short clip, so we wait until it ends (or reaches duration)
-      // We rely on onEnded for short clips, but as a fallback check duration
-      if (currentTime >= (currentSegment.endSeconds - currentSegment.startSeconds)) {
-        shouldAdvance = true;
-      }
-    }
+    const elapsed = Math.max(0, video.currentTime - segment.assetStartSeconds);
+    const nextTimelineTime = Math.min(segment.timelineEndSeconds, segment.timelineStartSeconds + elapsed);
+    setTimelineTime(nextTimelineTime);
+
+    const expectedEnd = segment.assetStartSeconds + segment.expectedDurationSeconds;
+    const shouldAdvance =
+      segment.source === "CANONICAL_FULL"
+        ? video.currentTime >= segment.timelineEndSeconds
+        : video.currentTime >= expectedEnd || video.ended;
 
     if (shouldAdvance) {
       handleEnded();
@@ -177,11 +210,17 @@ export default function WatchMoviePage() {
   };
 
   const handleEnded = () => {
-    if (currentSegmentIndex < segments.length - 1) {
-      setCurrentSegmentIndex(prev => prev + 1);
+    const currentSegments = segmentsRef.current;
+    const index = currentSegmentIndexRef.current;
+
+    if (index < currentSegments.length - 1) {
+      const nextIndex = index + 1;
+      setCurrentSegmentIndex(nextIndex);
+      setTimelineTime(currentSegments[nextIndex].timelineStartSeconds);
     } else {
       setIsPlaying(false);
-      setCurrentSegmentIndex(0); // reset to beginning
+      setCurrentSegmentIndex(0);
+      setTimelineTime(0);
     }
   };
 
@@ -202,10 +241,8 @@ export default function WatchMoviePage() {
       </div>
 
       <Card className="bg-zinc-900 border-zinc-800 overflow-hidden">
-        {/* Fake Video Player area */}
         <div className="aspect-video bg-black flex flex-col items-center justify-center relative">
-          
-          <video 
+          <video
             ref={videoRef}
             className="w-full h-full object-cover"
             onTimeUpdate={handleTimeUpdate}
@@ -213,62 +250,77 @@ export default function WatchMoviePage() {
             controls={false}
             playsInline
           />
-          
-          {/* Debug overlay (optional, remove in production) */}
+          <video ref={preloadVideoRef} className="hidden" preload="auto" muted playsInline />
+
           <div className="absolute top-4 left-4 p-2 bg-black/60 rounded text-xs font-mono text-white/50 pointer-events-none">
-            Segment: {segments[currentSegmentIndex]?.type} ({currentSegmentIndex + 1}/{segments.length})
+            Segment: {currentSegment?.source || "LOADING"} ({segments.length ? currentSegmentIndex + 1 : 0}/{segments.length})
           </div>
 
-          {/* Fake Player Controls overlay */}
+          {error && (
+            <div className="absolute top-4 right-4 max-w-sm p-2 bg-red-950/90 border border-red-800 rounded text-xs text-red-100">
+              {error}
+            </div>
+          )}
+
           <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent flex items-center gap-4">
-            <button 
+            <button
               className="w-10 h-10 bg-white text-black rounded-full flex items-center justify-center font-bold"
-              onClick={() => {
-                setIsPlaying(!isPlaying);
-              }}
+              onClick={() => setIsPlaying((value) => !value)}
+              disabled={!currentSegment}
             >
-              {isPlaying ? '||' : '▶'}
+              {isPlaying ? "||" : "▶"}
             </button>
             <div className="flex-1 h-1.5 bg-white/20 rounded-full relative overflow-hidden">
-               {/* Total progress calculation */}
-               <div 
-                 className="absolute top-0 left-0 bottom-0 bg-[#E50914] transition-all duration-300" 
-                 style={{ 
-                   width: videoRef.current && segments.length > 0 
-                     ? `${(segments[currentSegmentIndex]?.type === 'CANONICAL' ? videoRef.current.currentTime : segments[currentSegmentIndex].startSeconds + videoRef.current.currentTime) / movie.durationSeconds * 100}%` 
-                     : '0%' 
-                 }}
-               />
+              <div
+                className="absolute top-0 left-0 bottom-0 bg-[#E50914] transition-all duration-300"
+                style={{ width: `${(timelineTime / movie.durationSeconds) * 100}%` }}
+              />
             </div>
           </div>
         </div>
-        
+
         <CardContent className="p-4 border-t border-zinc-800 bg-zinc-950">
-           <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Segment Status</h3>
-           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {segments.filter(s => s.type === 'ADAPTIVE').map(segment => (
-                 <div key={segment.id} className="p-3 bg-zinc-900 border border-zinc-800 rounded-lg flex flex-col gap-2">
-                    <div className="font-medium text-slate-200 text-sm">{slots.find(s => s.id === segment.id)?.label || segment.id}</div>
-                     <div className="flex justify-between items-center text-xs">
-                       <span className="text-slate-500">Status</span>
-                       <Badge variant="outline" className={
-                         segment.status === 'READY' ? 'text-green-400 border-green-900' : 
-                         segment.status === 'FALLBACK' ? 'text-amber-400 border-amber-900' : 
-                         segment.status === 'FAILED' ? 'text-red-400 border-red-900' : 
-                         'text-blue-400 border-blue-900 animate-pulse'
-                       }>
-                         {segment.status}
-                       </Badge>
-                     </div>
-                     <div className="flex justify-between items-center text-xs mt-1">
-                       <span className="text-slate-500">Source</span>
-                       <span className="text-slate-400 font-mono">
-                         {segment.status === 'READY' ? 'Generated Asset' : 'Canonical Fallback'}
-                       </span>
-                     </div>
-                 </div>
-              ))}
-           </div>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Segment Status</h3>
+            <span className="text-xs text-slate-600">
+              Manifest: {manifest ? new Date(manifest.preparedAt).toLocaleTimeString() : "Preparing"}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {segments.filter((segment) => segment.type === "ADAPTIVE").map((segment) => {
+              const job = jobs.find((candidate) => candidate.slotId === segment.slotId);
+              const statusLabel = job?.status === "READY" ? segment.status : job?.status || segment.status;
+
+              return (
+                <div key={segment.id} className="p-3 bg-zinc-900 border border-zinc-800 rounded-lg flex flex-col gap-2">
+                  <div className="font-medium text-slate-200 text-sm">{segment.label || segment.id}</div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500">Status</span>
+                    <Badge
+                      variant="outline"
+                      className={
+                        statusLabel === "READY"
+                          ? "text-green-400 border-green-900"
+                          : statusLabel === "FALLBACK"
+                            ? "text-amber-400 border-amber-900"
+                            : statusLabel === "FAILED"
+                              ? "text-red-400 border-red-900"
+                              : "text-blue-400 border-blue-900 animate-pulse"
+                      }
+                    >
+                      {statusLabel}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center text-xs mt-1">
+                    <span className="text-slate-500">Source</span>
+                    <span className="text-slate-400 font-mono">
+                      {segment.source === "GENERATED_CLIP" ? "Generated Asset" : "Canonical Fallback"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </CardContent>
       </Card>
     </main>

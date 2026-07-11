@@ -66,7 +66,7 @@ export default async function JobsPage() {
                       <span className="text-indigo-400 font-semibold text-xs uppercase tracking-wider">Optimized Gemini-Omni Prompt</span>
                     </div>
                     <p className="text-indigo-100/90 text-xs whitespace-pre-wrap leading-relaxed italic border-l-2 border-indigo-500/50 pl-3">
-                      "{job.videoPrompt}"
+                      &quot;{job.videoPrompt}&quot;
                     </p>
                   </div>
                 )}

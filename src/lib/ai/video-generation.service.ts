@@ -8,8 +8,7 @@ export const VideoGenerationService = {
   generateVideoInsert: async (
     slot: AdaptiveSlot,
     profile: ViewerProfile,
-    jobId: string,
-    keyframeUrl?: string
+    jobId: string
   ): Promise<string> => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -45,7 +44,8 @@ export const VideoGenerationService = {
       console.log(`Uploaded successfully! File reference: ${uploadResult.name}. Polling status...`);
 
       // Poll until video state is ACTIVE
-      let file = uploadResult as any;
+      type GeminiFileState = { state?: string; name?: string; uri?: string; mimeType?: string };
+      let file = uploadResult as unknown as GeminiFileState;
       let retries = 0;
       const maxRetries = 20; // Up to 100 seconds
       const fileName = uploadResult.name;
@@ -56,7 +56,7 @@ export const VideoGenerationService = {
       while ((file.state === 'PROCESSING' || file.state === 'STATE_UNSPECIFIED') && retries < maxRetries) {
         console.log(`Video processing state: ${file.state}. Waiting 5s (attempt ${retries + 1}/${maxRetries})...`);
         await new Promise(resolve => setTimeout(resolve, 5000));
-        file = await ai.files.get({ name: fileName }) as any;
+        file = await ai.files.get({ name: fileName }) as unknown as GeminiFileState;
         retries++;
       }
 
