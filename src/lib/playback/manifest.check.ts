@@ -89,9 +89,9 @@ const readyJob: GenerationJob = {
 };
 
 const existingAssets = new Set([
-  "/media/canonical-gaps/canonical-gap-000.mp4",
-  "/media/canonical-gaps/canonical-gap-001.mp4",
-  "/media/canonical-gaps/canonical-gap-002.mp4",
+  "/media/canonical-gaps/movie-1/canonical-gap-000.mp4",
+  "/media/canonical-gaps/movie-1/canonical-gap-001.mp4",
+  "/media/canonical-gaps/movie-1/canonical-gap-002.mp4",
   "/media/generated/early.mp4",
   "/media/fallbacks/late.mp4",
 ]);
@@ -111,8 +111,8 @@ assert.deepEqual(
   ["canonical-gap-000", "early", "canonical-gap-001", "late", "canonical-gap-002"],
 );
 assert.equal(manifest.segments[0].source, "CANONICAL_GAP");
-assert.equal(manifest.segments[0].assetUrl, "/media/canonical-gaps/canonical-gap-000.mp4");
-assert.equal(manifest.segments[0].mseAssetUrl, "/media/playback-fragments/canonical-gaps/canonical-gap-000.mp4");
+assert.equal(manifest.segments[0].assetUrl, "/media/canonical-gaps/movie-1/canonical-gap-000.mp4");
+assert.equal(manifest.segments[0].mseAssetUrl, "/media/playback-fragments/canonical-gaps/movie-1/canonical-gap-000.mp4");
 assert.equal(manifest.segments[0].mimeType, MSE_PLAYBACK_MIME_TYPE);
 assert.equal(manifest.segments[0].assetStartSeconds, 0);
 assert.equal(manifest.segments[1].source, "GENERATED_CLIP");
@@ -120,11 +120,11 @@ assert.equal(manifest.segments[1].assetUrl, "/media/generated/early.mp4");
 assert.equal(manifest.segments[1].mseAssetUrl, "/media/playback-fragments/generated/early.mp4");
 assert.equal(manifest.segments[1].assetStartSeconds, 0);
 assert.equal(manifest.segments[2].source, "CANONICAL_GAP");
-assert.equal(manifest.segments[2].assetUrl, "/media/canonical-gaps/canonical-gap-001.mp4");
+assert.equal(manifest.segments[2].assetUrl, "/media/canonical-gaps/movie-1/canonical-gap-001.mp4");
 assert.equal(manifest.segments[3].source, "FALLBACK_CLIP");
 assert.equal(manifest.segments[3].assetUrl, "/media/fallbacks/late.mp4");
 assert.equal(manifest.segments[4].source, "CANONICAL_GAP");
-assert.equal(manifest.segments[4].assetUrl, "/media/canonical-gaps/canonical-gap-002.mp4");
+assert.equal(manifest.segments[4].assetUrl, "/media/canonical-gaps/movie-1/canonical-gap-002.mp4");
 assert.equal(manifest.segments[0].timelineStartSeconds, 0);
 assert.equal(manifest.segments[0].timelineEndSeconds, 10);
 assert.equal(manifest.segments[2].timelineStartSeconds, 12);
@@ -150,7 +150,7 @@ assert.throws(
       movie,
       slots,
       jobs: [readyJob],
-      assetExists: (assetUrl) => assetUrl !== "/media/canonical-gaps/canonical-gap-001.mp4",
+      assetExists: (assetUrl) => assetUrl !== "/media/canonical-gaps/movie-1/canonical-gap-001.mp4",
     }),
   /Required playback asset missing/,
 );

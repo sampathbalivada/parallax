@@ -16,8 +16,8 @@ export function orderedEnabledSlots(movie: Movie, slots: AdaptiveSlot[]) {
     .toSorted((a, b) => a.startSeconds - b.startSeconds);
 }
 
-export function canonicalGapClipUrl(index: number) {
-  return `/media/canonical-gaps/canonical-gap-${String(index).padStart(3, "0")}.mp4`;
+export function canonicalGapClipUrl(movieId: string, index: number) {
+  return `/media/canonical-gaps/${movieId}/canonical-gap-${String(index).padStart(3, "0")}.mp4`;
 }
 
 export function playbackFragmentUrl(assetUrl: string) {
@@ -34,7 +34,7 @@ export function buildCanonicalGapClips(movie: Movie, slots: AdaptiveSlot[]) {
     if (slot.startSeconds > cursor + EPSILON_SECONDS) {
       clips.push({
         id: `canonical-gap-${String(clips.length).padStart(3, "0")}`,
-        url: canonicalGapClipUrl(clips.length),
+        url: canonicalGapClipUrl(movie.id, clips.length),
         startSeconds: cursor,
         endSeconds: slot.startSeconds,
       });
@@ -46,7 +46,7 @@ export function buildCanonicalGapClips(movie: Movie, slots: AdaptiveSlot[]) {
   if (cursor < movie.durationSeconds - EPSILON_SECONDS) {
     clips.push({
       id: `canonical-gap-${String(clips.length).padStart(3, "0")}`,
-      url: canonicalGapClipUrl(clips.length),
+      url: canonicalGapClipUrl(movie.id, clips.length),
       startSeconds: cursor,
       endSeconds: movie.durationSeconds,
     });

@@ -28,7 +28,7 @@ export default function Home() {
             Watch Personalized Cut
           </Link>
 
-          <Link href="/compare/hotel-mystery-001" className={buttonVariants({ size: "lg", variant: "outline", className: "rounded px-8 font-semibold text-lg min-w-[240px]" })}>
+          <Link href="/compare" className={buttonVariants({ size: "lg", variant: "outline", className: "rounded px-8 font-semibold text-lg min-w-[240px]" })}>
             Compare Cuts
           </Link>
         </div>

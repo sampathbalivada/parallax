@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { seedSlots, seedProfiles } from "@/lib/data/seed";
-import { allMovies } from "@/lib/data/studio-store";
+import { allMovies, slotsForMovie } from "@/lib/data/studio-store";
 import { GenerationQueue } from "@/lib/jobs/generation-queue";
 import { VideoGenerationService } from "@/lib/ai/video-generation.service";
 import { GenerationJob } from "@/lib/types";
@@ -10,7 +10,7 @@ import path from "path";
 
 // Async function to run generation process in the background
 const processJob = async (job: GenerationJob) => {
-  const slot = seedSlots.find(s => s.id === job.slotId);
+  const slot = seedSlots.find(s => s.movieId === job.movieId && s.id === job.slotId);
   const profile = job.profileSnapshot;
   
   if (!slot || !profile) {
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Movie not found" }, { status: 400 });
     }
 
-    const movieSlots = seedSlots.filter((slot) => slot.movieId === movie.id);
+    const movieSlots = slotsForMovie(movie.id);
     const requestedSlots = slotId ? movieSlots.filter((slot) => slot.id === slotId) : movieSlots;
     if (slotId && requestedSlots.length === 0) {
       return NextResponse.json({ success: false, error: "Segment not found" }, { status: 400 });

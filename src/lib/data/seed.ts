@@ -2,6 +2,21 @@ import { ViewerProfile, Movie, AdaptiveSlot } from "@/lib/types";
 
 export const seedProfiles: ViewerProfile[] = [
   {
+    "id": "bengaluru-kn-in-srikant",
+    "displayName": "Srikant",
+    "city": "Bengaluru",
+    "country": "India",
+    "locale": "kn-IN",
+    "languageLabel": "Kannada",
+    "culturalContext": [
+      "Silicon valley of India"
+    ],
+    "accessibility": {
+      "highContrastText": false,
+      "simplifiedVisualClues": false
+    }
+  },
+  {
     "id": "vizag-te",
     "displayName": "Sampath",
     "city": "Visakhapatnam",

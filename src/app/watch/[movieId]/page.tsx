@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { seedMovie, seedProfiles } from "@/lib/data/seed";
+import { seedMovies, seedProfiles } from "@/lib/data/seed";
 import { GenerationJob, PlaybackManifest, PlaybackSegment } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { CustomProfileForm } from "./custom-profile-form";
 
 type PrepareResponse = {
   success: boolean;
@@ -66,8 +68,10 @@ export default function WatchMoviePage() {
   const searchParams = useSearchParams();
   const profileId = searchParams.get("profile");
 
-  const movie = seedMovie;
-  const profile = seedProfiles.find((candidate) => candidate.id === profileId) || seedProfiles[0];
+  const movie = seedMovies.find((candidate) => candidate.id === movieId);
+  const activeMovie = movie || seedMovies[0];
+  const profile = seedProfiles.find((candidate) => candidate.id === profileId);
+  const activeProfile = profile || seedProfiles[0];
 
   const primaryVideoRef = useRef<HTMLVideoElement>(null);
   const secondaryVideoRef = useRef<HTMLVideoElement>(null);
@@ -357,7 +361,7 @@ export default function WatchMoviePage() {
     const currentSegments = segmentsRef.current;
     if (!video || currentSegments.length === 0) return;
 
-    const nextTimelineTime = Math.min(movie.durationSeconds, Math.max(0, video.currentTime));
+    const nextTimelineTime = Math.min(activeMovie.durationSeconds, Math.max(0, video.currentTime));
     setTimelineTime(nextTimelineTime);
 
     const nextSegmentIndex = currentSegments.findIndex((segment) => nextTimelineTime < segment.timelineEndSeconds);
@@ -477,18 +481,70 @@ export default function WatchMoviePage() {
     }
   };
 
-  if (!profile) return <div>Profile not found</div>;
+  if (!movie) return <main className="p-8">Movie not found</main>;
+
+  if (!profileId) {
+    return (
+      <main className="min-h-screen p-8 max-w-5xl mx-auto flex flex-col gap-10">
+        <div className="text-center">
+          <Link href="/watch" className="text-indigo-400 hover:text-indigo-300 text-sm mb-4 inline-block">
+            &larr; Back to Projects
+          </Link>
+          <h1 className="text-4xl font-bold tracking-tight">Who is watching?</h1>
+          <p className="text-slate-400 mt-2">Select a viewer profile for {movie.title}.</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {seedProfiles.map((candidate) => (
+            <Card key={candidate.id} className="bg-zinc-900 border-zinc-800 flex flex-col">
+              <div className="p-6 flex-1">
+                <div className="text-2xl font-semibold text-slate-100 flex items-center justify-between gap-3">
+                  <span className="truncate">{candidate.displayName}</span>
+                  <span className="text-sm text-slate-500 shrink-0">{candidate.country}</span>
+                </div>
+                <div className="mt-5 flex flex-col gap-2 text-slate-300">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 w-20">City</span>
+                    <span className="font-medium text-slate-200">{candidate.city}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 w-20">Language</span>
+                    <span className="font-medium text-slate-200">{candidate.languageLabel}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Badge variant="outline" className="border-zinc-700">{candidate.locale}</Badge>
+                    {candidate.culturalContext?.map((ctx) => (
+                      <Badge key={ctx} variant="secondary" className="bg-zinc-800 text-slate-400">{ctx}</Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="p-6 pt-0">
+                <Link href={`/watch/${movie.id}?profile=${candidate.id}`} className={buttonVariants({ className: "w-full rounded" })}>
+                  Watch this cut
+                </Link>
+              </div>
+            </Card>
+          ))}
+        </div>
+
+        <CustomProfileForm movieId={movie.id} />
+      </main>
+    );
+  }
+
+  if (!profile) return <main className="p-8">Profile not found</main>;
 
   return (
     <main className="min-h-screen p-8 max-w-5xl mx-auto flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <Link href="/watch" className="text-indigo-400 hover:text-indigo-300 text-sm mb-2 inline-block">
+          <Link href={`/watch/${movie.id}`} className="text-indigo-400 hover:text-indigo-300 text-sm mb-2 inline-block">
             &larr; Back to Profiles
           </Link>
-          <h1 className="text-3xl font-bold">{movie.title}</h1>
+          <h1 className="text-3xl font-bold">{activeMovie.title}</h1>
           <p className="text-slate-400 mt-1">
-            Personalized for <strong className="text-slate-200">{profile.displayName}</strong> ({profile.city}, {profile.languageLabel})
+            Personalized for <strong className="text-slate-200">{activeProfile.displayName}</strong> ({activeProfile.city}, {activeProfile.languageLabel})
           </p>
         </div>
       </div>
@@ -544,7 +600,7 @@ export default function WatchMoviePage() {
             <div className="flex-1 h-1.5 bg-white/20 rounded-full relative overflow-hidden">
               <div
                 className="absolute top-0 left-0 bottom-0 bg-[#E50914] transition-all duration-300"
-                style={{ width: `${(displayTimelineTime / movie.durationSeconds) * 100}%` }}
+                style={{ width: `${(displayTimelineTime / activeMovie.durationSeconds) * 100}%` }}
               />
             </div>
           </div>

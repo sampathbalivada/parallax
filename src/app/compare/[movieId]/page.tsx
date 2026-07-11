@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { seedMovie, seedSlots, seedProfiles } from "@/lib/data/seed";
+import { seedMovies, seedSlots, seedProfiles } from "@/lib/data/seed";
 import { PlaybackManifest, PlaybackSegment, ViewerProfile } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,13 +11,14 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { LoaderCircle } from "lucide-react";
 
 type CutPlayerProps = {
+  movieId: string;
   profile: ViewerProfile;
   playing: boolean;
   seekSeconds: number;
   seekRevision: number;
 };
 
-function CutPlayer({ profile, playing, seekSeconds, seekRevision }: CutPlayerProps) {
+function CutPlayer({ movieId, profile, playing, seekSeconds, seekRevision }: CutPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaSourceRef = useRef<MediaSource | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -47,9 +48,9 @@ function CutPlayer({ profile, playing, seekSeconds, seekRevision }: CutPlayerPro
       await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ movieId: seedMovie.id, profileId: profile.id }),
+        body: JSON.stringify({ movieId, profileId: profile.id }),
       });
-      const response = await fetch(`/api/cuts/prepare?movieId=${seedMovie.id}&profileId=${profile.id}`);
+      const response = await fetch(`/api/cuts/prepare?movieId=${movieId}&profileId=${profile.id}`);
       const data = await response.json();
       if (!data.success || !data.manifest) throw new Error(data.error || "Unable to prepare cut");
       setManifest(data.manifest);
@@ -57,7 +58,7 @@ function CutPlayer({ profile, playing, seekSeconds, seekRevision }: CutPlayerPro
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to prepare cut");
     }
-  }, [profile.id]);
+  }, [movieId, profile.id]);
 
   useEffect(() => {
     const initialLoad = window.setTimeout(loadManifest, 0);
@@ -153,35 +154,38 @@ function CutPlayer({ profile, playing, seekSeconds, seekRevision }: CutPlayerPro
 
 export default function CompareMoviePage() {
   const { movieId } = useParams();
+  const resolvedMovieId = Array.isArray(movieId) ? movieId[0] : movieId;
+  const movie = seedMovies.find((candidate) => candidate.id === resolvedMovieId);
+  const movieSlots = seedSlots.filter((slot) => slot.movieId === movie?.id);
   const [isPlaying, setIsPlaying] = useState(false);
   const [seekSeconds, setSeekSeconds] = useState(0);
   const [seekRevision, setSeekRevision] = useState(0);
 
   const jumpToSlot = (slotId: string) => {
-    const slot = seedSlots.find((candidate) => candidate.id === slotId);
+    const slot = movieSlots.find((candidate) => candidate.id === slotId);
     if (!slot) return;
     setSeekSeconds(slot.startSeconds);
     setSeekRevision((revision) => revision + 1);
   };
 
-  if (movieId !== seedMovie.id) return <main className="p-8">Movie not found</main>;
+  if (!movie) return <main className="p-8">Movie not found</main>;
 
   return (
     <main className="min-h-screen p-8 max-w-[1600px] mx-auto flex flex-col gap-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <Link href="/" className="text-indigo-400 hover:text-indigo-300 text-sm mb-2 inline-block">&larr; Back to Home</Link>
-          <h1 className="text-3xl font-bold">Compare Cuts: {seedMovie.title}</h1>
+          <Link href="/compare" className="text-indigo-400 hover:text-indigo-300 text-sm mb-2 inline-block">&larr; Back to Projects</Link>
+          <h1 className="text-3xl font-bold">Compare Cuts: {movie.title}</h1>
         </div>
         <Button variant="outline" className="border-zinc-700 bg-zinc-900" onClick={() => setIsPlaying((value) => !value)}>{isPlaying ? "Pause All" : "Play All"}</Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {seedProfiles.slice(0, 3).map((profile) => <CutPlayer key={profile.id} profile={profile} playing={isPlaying} seekSeconds={seekSeconds} seekRevision={seekRevision} />)}
+        {seedProfiles.map((profile) => <CutPlayer key={profile.id} movieId={movie.id} profile={profile} playing={isPlaying} seekSeconds={seekSeconds} seekRevision={seekRevision} />)}
       </div>
 
       <div className="flex flex-wrap justify-center gap-2 pt-2">
-        {seedSlots.map((slot) => <Button key={slot.id} variant="secondary" onClick={() => jumpToSlot(slot.id)}>{slot.label}</Button>)}
+        {movieSlots.map((slot) => <Button key={slot.id} variant="secondary" onClick={() => jumpToSlot(slot.id)}>{slot.label}</Button>)}
       </div>
     </main>
   );

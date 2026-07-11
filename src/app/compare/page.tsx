@@ -3,7 +3,7 @@ import { allMovies } from "@/lib/data/studio-store";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 
-export default function WatchIndexPage() {
+export default function CompareIndexPage() {
   const movies = allMovies();
 
   return (
@@ -12,8 +12,8 @@ export default function WatchIndexPage() {
         <Link href="/" className="text-indigo-400 hover:text-indigo-300 text-sm mb-4 inline-block">
           &larr; Back to Home
         </Link>
-        <h1 className="text-4xl font-bold tracking-tight">Watch Personalized Cut</h1>
-        <p className="text-slate-400 mt-2">Choose a project, then select a viewer profile.</p>
+        <h1 className="text-4xl font-bold tracking-tight">Compare Segments</h1>
+        <p className="text-slate-400 mt-2">Choose a project to compare personalized cuts.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -29,8 +29,8 @@ export default function WatchIndexPage() {
               <p className="text-sm text-slate-300 mb-6 line-clamp-3">
                 {movie.description || "No description yet."}
               </p>
-              <Link href={`/watch/${movie.id}`} className={buttonVariants({ className: "w-full rounded" })}>
-                Choose profile
+              <Link href={`/compare/${movie.id}`} className={buttonVariants({ className: "w-full rounded" })}>
+                Compare this project
               </Link>
             </CardContent>
           </Card>

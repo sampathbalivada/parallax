@@ -45,6 +45,7 @@ export async function exportSegmentsAction(movieId: string) {
 
     for (const gap of canonicalGaps) {
       const outputPath = path.join(process.cwd(), "public", gap.url);
+      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
       const duration = gap.endSeconds - gap.startSeconds;
       const cmd = `ffmpeg -y -ss ${gap.startSeconds} -i "${inputPath}" -t ${duration} -c:v libx264 -preset fast -crf 23 -c:a aac -movflags +faststart "${outputPath}"`;
 

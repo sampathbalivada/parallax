@@ -4,6 +4,17 @@ import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import { GenerationQueue } from '../jobs/generation-queue';
 
+function localAdInstruction(slot: AdaptiveSlot, profile: ViewerProfile) {
+  if (slot.type !== "ADSPOT_BILLBOARD") return "";
+
+  return `Adspot/Billboard localization requirements:
+- Generate plausible advertising creative that is specifically relevant to viewers in ${profile.city}, ${profile.country}.
+- Use ${profile.languageLabel} (${profile.locale}) for visible ad copy when it fits the scene, including local script conventions where appropriate.
+- Prefer locally relevant categories, brands, public-service themes, retail offers, entertainment, food, transit, telecom, or events that would feel natural in ${profile.city}.
+- Avoid generic global ads unless they are clearly adapted to ${profile.city}, ${profile.country}.
+- Keep the advertisement diegetic: it must look like it belongs on the existing billboard/ad surface and must not alter camera motion, people, foreground action, lighting, timing, or surrounding environment.`;
+}
+
 export const VideoGenerationService = {
   generateVideoInsert: async (
     slot: AdaptiveSlot,
@@ -72,6 +83,7 @@ export const VideoGenerationService = {
       const editableFieldsStr = slot.editableFields?.join(", ") || "background props";
       const immutableFactsStr = slot.immutableFacts?.join(", ") || "None";
       const prohibitedChangesStr = slot.prohibitedChanges?.join(", ") || "None";
+      const adInstruction = localAdInstruction(slot, profile);
 
       try {
         console.log(`Generating optimized prompt with gemini-3.5-flash for slot ${slot.id}...`);
@@ -91,12 +103,14 @@ Use the following inputs to design the prompt:
   * Country: ${profile.country}
   * Locale/Language: ${profile.locale} (${profile.languageLabel})
   * Cultural Context: ${culturalContextStr}
+${adInstruction ? `\n- Additional Slot-Specific Requirements:\n${adInstruction}` : ""}
 
 Instructions for the generated prompt:
 1. It must specify exactly what to change (e.g. modify the 'welcome board', 'tail number', billboard, poster, sponsored ad spot, storefront ad, or digital ad panel to match the viewer's city, language script, and cultural theme).
 2. It must explicitly state what elements of the video to keep identical (the camera motion, actors, lighting, and rest of the scene).
-3. Ensure the tone is clear, direct, and imperative.
-4. Output ONLY the finalized prompt that will be fed to Gemini Omni. Do NOT include any intro or wrap-up text (like "Here is your prompt:"). Output the pure prompt directly.`;
+3. For Adspot/Billboard segments, the generated prompt must make the advertisement locally relevant to the viewer location and language, not generic.
+4. Ensure the tone is clear, direct, and imperative.
+5. Output ONLY the finalized prompt that will be fed to Gemini Omni. Do NOT include any intro or wrap-up text (like "Here is your prompt:"). Output the pure prompt directly.`;
 
         const promptResponse = await ai.models.generateContent({
           model: 'gemini-3.5-flash',
@@ -120,6 +134,7 @@ Instructions for the generated prompt:
       - Narrative goal: ${slot.narrativePurpose}.
       - Segment type: ${slot.type}.
       - Localized editable elements: ${editableFieldsStr}.
+      ${adInstruction}
       Please modify the editable parts (such as signs, logos, flags, screens, billboards, posters, sponsored ad spots, storefront ads, digital ad panels, text, or specific background elements) to fit this location, cultural theme, and narrative.
       IMPORTANT: Keep the camera motion, overall timing, actors, and overall scene structure exactly identical to the original clip. Only perform seamless editing/replacement on the target localized props.`;
       }
