@@ -59,6 +59,17 @@ export default async function JobsPage() {
                   <span className="w-24 text-slate-500">Cache Key:</span>
                   <span className="font-mono text-xs break-all">{job.cacheKey}</span>
                 </div>
+                {job.videoPrompt && (
+                  <div className="mt-4 p-4 bg-zinc-950 rounded-lg border border-zinc-800/80 flex flex-col gap-2 shadow-inner">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-[0_0_8px_#6366f1]" />
+                      <span className="text-indigo-400 font-semibold text-xs uppercase tracking-wider">Optimized Gemini-Omni Prompt</span>
+                    </div>
+                    <p className="text-indigo-100/90 text-xs whitespace-pre-wrap leading-relaxed italic border-l-2 border-indigo-500/50 pl-3">
+                      "{job.videoPrompt}"
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))
