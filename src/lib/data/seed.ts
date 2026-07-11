@@ -53,8 +53,8 @@ export const seedProfiles: ViewerProfile[] = [
 
 export const seedMovie: Movie = {
   "id": "hotel-mystery-001",
-  "title": "The Room Across the City",
-  "description": "A short film project.",
+  "title": "Dhurandhar",
+  "description": "Ishq Jalakar",
   "durationSeconds": 33,
   "canonicalVideoUrl": "/media/canonical-full.mp4",
   "manifestVersion": 1,
